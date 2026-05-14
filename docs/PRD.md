@@ -113,6 +113,14 @@ The leading MVP layout mode should be fixed rows, because it matches the desired
 
 The wall should preserve a set number of rows and use as many columns as needed. Content should fit into those rows without visual gaps. The layout should allow mixed aspect ratios to use space efficiently; for example, portrait videos may occupy narrower columns or fill available openings when landscape videos complete or are removed. The MVP can start with uniform tile slots plus strong fit/fill/crop behavior, but the layout model should leave room for a smarter gap-filling algorithm.
 
+Rows should fit inside the browser viewport height. Increasing row count should make each row, and therefore each video tile, smaller. Row height should be measured from the available wall viewport, not allowed to expand content vertically. Tile width should be based on the video's effective aspect ratio so normal 16:9 videos remain landscape and take their full proportional space.
+
+The wall is not a CSS grid. It is a vertical stack of row containers. Each row independently packs videos left-to-right until the row is full, then the next row begins. Row content should be horizontally centered when underfilled or slightly overfilled, with only a small amount of permitted edge overflow.
+
+The wall should expose a horizontal scrollbar at the bottom when packed rows are wider than the viewport. Vertical mouse-wheel scrolling over the wall should move the wall left/right horizontally.
+
+The packed wall column should stay centered in the viewport by default. Rows should also center their contents, and automatic fills/replacements should avoid growing rows far wider than the window; a small amount of overflow is acceptable, but whole videos should not be hidden off-screen by normal replacement behavior.
+
 Each tile should support:
 
 - Fit inside tile.
@@ -122,7 +130,11 @@ Each tile should support:
 
 Double-clicking a video should zoom it to roughly 95% of the available screen. This should keep the user in the wall context rather than opening a separate player. Clicking outside the zoomed video returns it to its previous wall location and size.
 
+Only one zoomed video can be displayed at a time. Opening a different video returns the previous zoomed video to the wall. While a video is zoomed, left/right arrow keys should cycle through displayed videos in packed row order, moving left-to-right through one row, then to the next row, and looping from the end of the last row to the start of the first row.
+
 Manual crop controls are backlog. MVP crop controls should focus on fit, fill, and automatic detected crop.
+
+Automatic detected crop should only remove detected letterboxing/pillarboxing, such as a vertical phone video saved inside a 16:9 frame. It should not crop normal 16:9 video content just to force a uniform tile shape.
 
 Wall transitions should use GSAP so adding, removing, zooming, pinning, and replacing videos feels spatially coherent. Motion should be fast and functional, not decorative.
 
@@ -141,7 +153,8 @@ Catalog behavior:
 
 - Adding a folder automatically scans supported videos and populates the catalog.
 - Newly discovered videos can auto-populate the wall until the current wall capacity or user preference is reached.
-- When a video ends, the app should feed a new video from the catalog into that tile.
+- When a video ends, it should disappear from the wall and make room for a replacement video from the catalog.
+- End-of-video replacement should prefer a video with a similar effective aspect ratio so rows do not jump. If a landscape slot has no good landscape replacement, the app may replace it with multiple portrait videos inserted at the same wall position to preserve the occupied row width.
 - The app should prefer showing videos that have not yet appeared in the current session.
 - When the full catalog has been shown, the app should loop the library and continue filling completed tiles.
 - Users can manually add catalog items to the wall.
@@ -157,15 +170,17 @@ Catalog sorting and selection:
 - Sort by modified date.
 - Sort by video duration after metadata is available.
 - Shuffle/randomize catalog order.
-- Fill wall from current sort order.
-- Fill wall with random videos.
+- Shuffle should be on by default for automatic wall fill and end-of-video replacement.
+- Fill wall from current sort order by adding enough videos to fill the packed width of every row.
+- Fill wall with random videos by rebuilding the wall from a shuffled catalog.
 
 Recommended first layout:
 
-- A collapsible left sidebar for the catalog.
-- A hover/hotkey control panel at the top of the app for global playback, row count, mute all, sort mode, shuffle, and resume session.
+- A collapsible left sidebar for the catalog that overlays the video wall instead of taking layout space.
+- A hover/hotkey control panel at the top of the app for global playback, row count, mute all, sort mode, shuffle, and resume session. It should overlay the video wall instead of taking layout space.
 - The video wall as the primary full-height workspace.
 - Default row count: 2.
+- The catalog sidebar and top control panel should use translucent backgrounds with backdrop blur so the video wall remains visually present behind controls.
 
 Browser constraint:
 
@@ -173,7 +188,7 @@ Browser constraint:
 
 ### Control Panel
 
-The app should have a control panel that stays hidden during normal wall viewing and appears when the user hovers near the top edge of the app or presses a hotkey.
+The app should have a control panel that is open on first launch, then can stay hidden during normal wall viewing and reappear when the user hovers near the top edge of the app or presses a hotkey.
 
 Recommended hotkeys:
 
@@ -232,12 +247,16 @@ Global controls should include:
 
 Global controls should be explicit UI controls, not the default target of normal keyboard shortcuts while videos are selected.
 
+The main control panel play/pause should always control all displayed videos, regardless of current selection. Keyboard shortcuts may continue to scope to selected videos.
+
 ### Per-Video Controls
 
 Each video tile should provide controls for:
 
 - Play / pause.
 - Seek backward / forward.
+- Hover timeline for scrubbing within that video.
+- Previous / next video buttons next to the timeline.
 - Volume.
 - Mute.
 - Playback speed.
@@ -246,7 +265,11 @@ Each video tile should provide controls for:
 - Pin / unpin.
 - Open metadata or crop editor.
 
-Per-video controls should be compact so they do not dominate the wall. For multi-selection, the control surface should expose operations that apply to every selected video.
+Per-video controls should be compact so they do not dominate the wall. Hovering over or moving within a video tile should reveal its timeline and tile controls. Moving the cursor off a video should fade the tile timeline and buttons out immediately. If the cursor remains over a video without interaction, the tile timeline/controls and cursor should hide after 4 seconds. For multi-selection, the control surface should expose operations that apply to every selected video.
+
+Pinned, zoom, and remove actions should live on the same horizontal control row as the per-video timeline. When multiple videos are selected, actions triggered from one selected tile should apply to the selected group. Timeline scrubbing in a multi-selection should seek each selected video by the same percent of its duration, not by the same absolute timestamp.
+
+Short videos under 30 seconds should loop in place until they have played for at least 30 seconds, then become eligible for normal end-of-video replacement.
 
 ## Keyboard Shortcuts
 

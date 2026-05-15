@@ -34,6 +34,7 @@ export type CatalogVideo = {
   crop?: CropRect
   cropConfidence?: number
   unsupported?: boolean
+  error?: string
 }
 
 export type WallVideo = {

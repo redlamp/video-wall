@@ -180,7 +180,7 @@ export function VideoWallApp() {
   const [insertTarget, setInsertTarget] = useState<InsertTarget>(null)
   const [dropActive, setDropActive] = useState(false)
   const [panelPosition, setPanelPosition] = useState<PanelPosition | null>(null)
-  const [, setMessage] = useState("Drop videos or folders to begin.")
+  const [message, setMessage] = useState("")
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
@@ -950,6 +950,14 @@ export function VideoWallApp() {
     setMessage("Catalog cleared.")
   }
 
+  const markVideoError = useCallback((video: CatalogVideo) => {
+    const error = "Browser could not play this video."
+    setCatalog((current) =>
+      current.map((item) => (item.id === video.id ? { ...item, unsupported: true, error } : item))
+    )
+    setMessage(`${error} ${video.name}`)
+  }, [])
+
   const handleMetadata = async (wallId: string, video: CatalogVideo, element: HTMLVideoElement) => {
     const width = element.videoWidth
     const height = element.videoHeight
@@ -1247,6 +1255,7 @@ export function VideoWallApp() {
                         onNext={() => stepTile(wallItem.wallId, "next")}
                         onSeekPercent={(percent) => seekTilePercent(wallItem.wallId, percent)}
                         onMetadata={(element) => void handleMetadata(wallItem.wallId, video, element)}
+                        onError={() => markVideoError(video)}
                         onToggleMute={() => toggleMuteTile(wallItem.wallId)}
                         onTogglePin={() => togglePinTile(wallItem.wallId)}
                         onRemove={() => removeTile(wallItem.wallId)}
@@ -1271,6 +1280,8 @@ export function VideoWallApp() {
           ) : null}
         </div>
       </section>
+
+      <StatusMessage message={message} onDismiss={() => setMessage("")} />
 
       {dropActive ? (
         <div className="pointer-events-none absolute inset-3 grid place-items-center rounded-lg border border-primary bg-background/75 text-sm font-medium text-foreground backdrop-blur">
@@ -1379,7 +1390,9 @@ function CatalogSidebar({
                 <button
                   key={item.id}
                   type="button"
-                  className="flex min-h-16 w-full items-start gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-sidebar-accent"
+                  className="flex min-h-16 w-full items-start gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-sidebar-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={item.unsupported}
+                  title={item.error}
                   onDoubleClick={() => onAddToWall(item.id)}
                 >
                   <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded bg-muted text-xs text-muted-foreground">
@@ -1393,6 +1406,7 @@ function CatalogSidebar({
                       {formatFileSize(item.size)}
                     </span>
                   </span>
+                  {item.unsupported ? <Badge variant="destructive">error</Badge> : null}
                   {activeIds.has(item.id) ? <Badge variant="secondary">wall</Badge> : null}
                 </button>
               ))}
@@ -1412,6 +1426,29 @@ function CatalogSidebar({
         </>
       ) : null}
     </aside>
+  )
+}
+
+function StatusMessage({
+  message,
+  onDismiss,
+}: {
+  message: string
+  onDismiss: () => void
+}) {
+  if (!message) return null
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="absolute bottom-24 right-4 z-40 flex max-w-sm items-center gap-2 rounded-lg border border-border bg-popover/80 px-3 py-2 text-sm text-popover-foreground shadow-xl backdrop-blur-xl"
+    >
+      <span className="min-w-0 flex-1">{message}</span>
+      <Button size="icon-xs" variant="ghost" onClick={onDismiss} aria-label="Dismiss status">
+        <X data-icon="inline-start" />
+      </Button>
+    </div>
   )
 }
 
@@ -1879,6 +1916,7 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
     onNext,
     onSeekPercent,
     onMetadata,
+    onError,
     onToggleMute,
     onTogglePin,
     onRemove,
@@ -2134,8 +2172,16 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
             shortLoopSecondsRef.current = 0
             onEnded()
           }}
-          onError={() => undefined}
+          onError={onError}
         />
+        {video.unsupported ? (
+          <div className="absolute inset-0 z-10 grid place-items-center bg-black/75 p-4 text-center text-xs text-white">
+            <div>
+              <div className="font-medium">Unable to play video</div>
+              {video.error ? <div className="mt-1 text-white/70">{video.error}</div> : null}
+            </div>
+          </div>
+        ) : null}
         <div
           className={cn(
             "pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between bg-gradient-to-b from-black/70 to-transparent p-2 transition-opacity",
@@ -2219,6 +2265,7 @@ type VideoTileProps = {
   onNext: () => void
   onSeekPercent: (percent: number) => void
   onMetadata: (element: HTMLVideoElement) => void
+  onError: () => void
   onToggleMute: () => void
   onTogglePin: () => void
   onRemove: () => void

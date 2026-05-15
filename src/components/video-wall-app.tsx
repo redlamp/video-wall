@@ -66,6 +66,7 @@ import { cn } from "@/lib/utils"
 const DEFAULT_ROWS = 2
 const SEEK_SECONDS = 5
 const SUPPORTED_ACCEPT = ".mp4,.mov,.webm,.m4v,.mkv,.avi,video/*"
+const PUBLIC_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? ""
 
 type DragRect = {
   startX: number
@@ -2150,7 +2151,7 @@ function EmptyWall({ onAddFiles, onAddFolder }: { onAddFiles: () => void; onAddF
     <div className="grid h-full place-items-center">
       <div className="flex max-w-md flex-col items-center gap-4 rounded-lg border border-dashed border-border bg-card/50 p-8 text-center">
         <Image
-          src="/video-wall-logo.png"
+          src={`${PUBLIC_BASE_PATH}/video-wall-logo.png`}
           alt=""
           width={48}
           height={48}

@@ -27,7 +27,7 @@ Avoid mixing broad refactors with behavior changes. If a topic grows beyond one 
 
 ## Topic Queue
 
-### 1. Visible Status And Media Errors
+### 1. Visible Status And Media Errors - Completed
 
 Goal: make app messages visible and make failed/unsupported media obvious.
 
@@ -43,7 +43,7 @@ Validation:
 - Trigger a video load error where practical and confirm the tile/catalog communicates failure.
 - Run lint/build.
 
-### 2. Object URL Lifecycle
+### 2. Object URL Lifecycle - Completed
 
 Goal: avoid leaking `blob:` URLs during duplicate adds, catalog clears, and unmount.
 
@@ -59,7 +59,7 @@ Validation:
 - Clear catalog and confirm the wall resets.
 - Run lint/build.
 
-### 3. Timeline Render Pressure
+### 3. Timeline Render Pressure - Completed
 
 Goal: reduce React work caused by every playing video updating timeline state.
 
@@ -130,3 +130,6 @@ Validation:
 ## Recently Completed
 
 - PRD updated to match current bottom-panel, theme, muted-default, and detected-crop direction.
+- User-visible status and media error states now surface failed/unsupported files.
+- Catalog object URLs are tracked, deduped, and revoked on cleanup.
+- Tile timeline React updates are throttled and gated to visible/zoomed/scrub states.

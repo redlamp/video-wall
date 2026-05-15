@@ -1962,6 +1962,9 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const controlPointerActiveRef = useRef(false)
+  const controlsVisibleRef = useRef(false)
+  const currentTimeRef = useRef(0)
+  const lastTimelineSyncRef = useRef(0)
   const shortLoopSecondsRef = useRef(0)
 
   const setRootRef = useCallback(
@@ -1976,13 +1979,30 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
     [ref]
   )
 
+  const syncCurrentTime = useCallback(
+    (element: HTMLVideoElement | null, force = false) => {
+      if (!element) return
+      const nextTime = element.currentTime
+      currentTimeRef.current = nextTime
+      if (!force && !controlsVisibleRef.current && !zoomed) return
+      const now = performance.now()
+      if (!force && now - lastTimelineSyncRef.current < 250) return
+      lastTimelineSyncRef.current = now
+      setCurrentTime(nextTime)
+    },
+    [zoomed]
+  )
+
   const revealControls = useCallback(() => {
+    controlsVisibleRef.current = true
     setControlsVisible(true)
+    syncCurrentTime(localVideoRef.current, true)
     if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current)
     controlsTimerRef.current = setTimeout(() => {
+      controlsVisibleRef.current = false
       setControlsVisible(false)
     }, 4000)
-  }, [])
+  }, [syncCurrentTime])
 
   useEffect(() => {
     return () => {
@@ -2019,6 +2039,8 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
 
   const updateScrub = (event: ChangeEvent<HTMLInputElement> | FormEvent<HTMLInputElement>) => {
     const nextTime = Number(event.currentTarget.value)
+    currentTimeRef.current = nextTime
+    lastTimelineSyncRef.current = performance.now()
     setCurrentTime(nextTime)
     onSeekPercent(duration > 0 ? nextTime / duration : 0)
   }
@@ -2117,6 +2139,7 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
       onPointerMove={revealControls}
       onPointerLeave={() => {
         if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current)
+        controlsVisibleRef.current = false
         setControlsVisible(false)
       }}
       onDoubleClick={(event) => {
@@ -2182,9 +2205,10 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
             element.volume = masterVolume
             element.muted = muted || tileMuted || masterVolume === 0
             setDuration(element.duration || 0)
+            syncCurrentTime(element, true)
             onMetadata(element)
           }}
-          onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+          onTimeUpdate={(event) => syncCurrentTime(event.currentTarget)}
           onEnded={(event) => {
             const element = event.currentTarget
             if (element.duration > 0 && element.duration < 30 && shortLoopSecondsRef.current < 30) {

@@ -18,6 +18,7 @@ The initial product should prioritize a reliable local-video wall with strong la
 - Store metadata for previously loaded videos, including detected crop regions and source details.
 - Keep the app practical for local libraries first, with a path toward online sources later.
 - Allow users to zoom in on or emphasize a specific video without leaving the wall workflow.
+- Provide light and dark themes, with dark as the default viewing mode.
 
 ## Non-Goals For MVP
 
@@ -177,10 +178,10 @@ Catalog sorting and selection:
 Recommended first layout:
 
 - A collapsible left sidebar for the catalog that overlays the video wall instead of taking layout space.
-- A hover/hotkey control panel at the top of the app for global playback, row count, mute all, sort mode, shuffle, and resume session. It should overlay the video wall instead of taking layout space.
+- A hover/hotkey control panel at the bottom of the app for global playback, row count, mute all, scroll mode, aspect filtering, crop mode, fill, randomize, shuffle, theme, and pinning. It should overlay the video wall instead of taking layout space.
 - The video wall as the primary full-height workspace.
 - Default row count: 2.
-- The catalog sidebar and top control panel should use translucent backgrounds with backdrop blur so the video wall remains visually present behind controls.
+- The catalog sidebar and control panel should use translucent backgrounds with backdrop blur so the video wall remains visually present behind controls.
 
 Browser constraint:
 
@@ -188,7 +189,7 @@ Browser constraint:
 
 ### Control Panel
 
-The app should have a control panel that is open on first launch, then can stay hidden during normal wall viewing and reappear when the user hovers near the top edge of the app or presses a hotkey.
+The app should have a bottom control panel that is open on first launch, then can stay hidden during normal wall viewing and reappear when the user hovers near the bottom edge of the app or presses a hotkey. The panel should be draggable so users can reposition it around the screen. When not pinned or actively hovered, it should fade out after a short delay rather than sliding out of the layout.
 
 Recommended hotkeys:
 
@@ -199,21 +200,21 @@ Avoid using `P` as the primary panel shortcut because it is easy to confuse with
 
 The control panel should use shadcn components where possible and include:
 
+- Fill wall from catalog.
+- Random wall refresh.
+- Shuffle toggle.
+- Scroll mode toggle: scroll all rows together or scroll one hovered row independently.
+- Aspect ratio filter: mixed, landscape, portrait.
+- Crop mode: detected, fill, fit.
 - Global play / pause.
+- Global seek backward / forward.
 - Master volume and mute all.
 - Playback speed.
 - Row count.
-- Sort mode: name, modified date, duration.
-- Shuffle / random fill.
-- Fill wall from catalog.
-- Resume previous session.
-- Crop mode default: fit, fill, detected crop.
-- Toggle detected crop on/off for selected videos.
-- Selection actions: clear selection, pin/unpin selected, remove selected.
-- Library actions: add files, add folder, clear session catalog.
+- Theme toggle: dark and light, with dark as the default.
 - Performance mode or quality preference later if needed.
 
-The panel should not permanently consume vertical wall space unless pinned open. A pin option can keep it visible for setup-heavy workflows.
+The panel should not permanently consume vertical wall space. A pin option can keep it visible for setup-heavy workflows. The theme toggle should sit next to the panel pin button. Speed and row steppers should expose brief icon tooltips.
 
 ### Selection Model
 
@@ -297,6 +298,8 @@ Explicit global toolbar buttons should remain available for controlling all vide
 
 The app should detect black bars by sampling frames and estimating the active content rectangle. Detection should run automatically when a video is added.
 
+Detected crop must only clip away detected black bars. It must never scale video width and height disproportionately, stretch content, or squash content to fit a tile. The rendered video should preserve its natural aspect ratio, with the tile frame clipping the detected black-bar area.
+
 Suggested MVP algorithm:
 
 1. Sample several frames across the video duration.
@@ -367,7 +370,7 @@ Potential optimizations:
 - Avoid drawing video to canvas continuously.
 - Run crop detection as a one-time analysis job.
 - Use virtualization only for non-visible library panels, not active wall tiles.
-- Do not mute videos by default, but make master volume and mute-all easy to reach.
+- Mute videos by default and start master volume at a low level, while making mute-all and master volume easy to reach.
 
 ## MVP Scope
 
@@ -378,7 +381,7 @@ Potential optimizations:
 5. Add shuffle/random fill from catalog.
 6. Render videos in a fixed-row responsive grid, with columns filled automatically.
 7. Add explicit global play, pause, seek, speed, master volume, and mute-all controls.
-8. Add a top-edge hover and hotkey control panel using shadcn components where possible.
+8. Add a bottom-edge hover, draggable, and hotkey control panel using shadcn components where possible.
 9. Add selection behavior: click, click-to-unselect, `Ctrl+Click`, `Shift+Drag`, and `Escape`.
 10. Add compact per-tile controls and selected-video bulk controls.
 11. Implement keyboard shortcuts scoped to selected videos, falling back to all videos when nothing is selected.

@@ -14,6 +14,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react"
 import gsap from "gsap"
 import Image from "next/image"
@@ -69,6 +70,8 @@ const DEFAULT_ROWS = 2
 const SEEK_SECONDS = 5
 const SUPPORTED_ACCEPT = ".mp4,.mov,.webm,.m4v,.mkv,.avi,video/*"
 const PUBLIC_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? ""
+const THEME_STORAGE_KEY = "video-wall-theme"
+const THEME_CHANGE_EVENT = "video-wall-theme-change"
 
 type DragRect = {
   startX: number
@@ -116,6 +119,41 @@ type PanelDrag = {
   offsetY: number
 }
 
+function getStoredThemeMode(): ThemeMode {
+  if (typeof window === "undefined") return "dark"
+  const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
+  return stored === "light" || stored === "dark" ? stored : "dark"
+}
+
+function subscribeToThemeModeChange(onStoreChange: () => void) {
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === THEME_STORAGE_KEY) onStoreChange()
+  }
+
+  window.addEventListener("storage", handleStorage)
+  window.addEventListener(THEME_CHANGE_EVENT, onStoreChange)
+
+  return () => {
+    window.removeEventListener("storage", handleStorage)
+    window.removeEventListener(THEME_CHANGE_EVENT, onStoreChange)
+  }
+}
+
+function useThemeMode() {
+  const themeMode = useSyncExternalStore<ThemeMode>(
+    subscribeToThemeModeChange,
+    getStoredThemeMode,
+    () => "dark"
+  )
+
+  const setThemeMode = useCallback((value: ThemeMode) => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, value)
+    window.dispatchEvent(new Event(THEME_CHANGE_EVENT))
+  }, [])
+
+  return [themeMode, setThemeMode] as const
+}
+
 export function VideoWallApp() {
   const [catalog, setCatalog] = useState<CatalogVideo[]>([])
   const [wall, setWall] = useState<WallVideo[]>([])
@@ -134,11 +172,7 @@ export function VideoWallApp() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [shuffleOn, setShuffleOn] = useState(true)
   const [scrollMode, setScrollMode] = useState<ScrollMode>("all")
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
-    if (typeof window === "undefined") return "dark"
-    const stored = window.localStorage.getItem("video-wall-theme")
-    return stored === "light" || stored === "dark" ? stored : "dark"
-  })
+  const [themeMode, setThemeMode] = useThemeMode()
   const [wallSize, setWallSize] = useState({ width: 0, height: 0 })
   const [zoomedId, setZoomedId] = useState<string | null>(null)
   const [dragRect, setDragRect] = useState<DragRect | null>(null)
@@ -178,7 +212,6 @@ export function VideoWallApp() {
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", themeMode === "dark")
-    window.localStorage.setItem("video-wall-theme", themeMode)
   }, [themeMode])
 
   const wallVideos = useMemo(() => {
@@ -2627,9 +2660,14 @@ function getVideoCropStyle(video: CatalogVideo, cropMode: CropMode): CSSProperti
 
   const { x, y, width, height } = video.crop
   return {
+    height: `${100 / height}%`,
+    left: `${(-x / width) * 100}%`,
+    maxHeight: "none",
+    maxWidth: "none",
     objectFit: "fill",
-    transformOrigin: `${(x + width / 2) * 100}% ${(y + height / 2) * 100}%`,
-    transform: `scale(${1 / width}, ${1 / height})`,
+    position: "absolute",
+    top: `${(-y / height) * 100}%`,
+    width: `${100 / width}%`,
   }
 }
 

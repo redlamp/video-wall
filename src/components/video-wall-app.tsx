@@ -16,6 +16,7 @@ import {
   useState,
 } from "react"
 import gsap from "gsap"
+import Image from "next/image"
 import {
   ArrowRightFromLine,
   ArrowRightLeft,
@@ -2148,9 +2149,14 @@ function EmptyWall({ onAddFiles, onAddFolder }: { onAddFiles: () => void; onAddF
   return (
     <div className="grid h-full place-items-center">
       <div className="flex max-w-md flex-col items-center gap-4 rounded-lg border border-dashed border-border bg-card/50 p-8 text-center">
-        <div className="flex size-12 items-center justify-center rounded-lg bg-muted">
-          <FolderOpen data-icon="inline-start" />
-        </div>
+        <Image
+          src="/video-wall-logo.png"
+          alt=""
+          width={48}
+          height={48}
+          className="size-12 rounded-lg"
+          draggable={false}
+        />
         <div>
           <h1 className="text-xl font-semibold">Video Wall</h1>
           <p className="mt-2 text-sm text-muted-foreground">

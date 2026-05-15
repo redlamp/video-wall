@@ -8,6 +8,7 @@
 - Required checks before commits that touch app code:
   - `npm.cmd run lint`
   - `npm.cmd run build`
+  - `npm.cmd run smoke` for interaction-sensitive changes when local browsers and `ffmpeg` are available
 - Local dev server:
   - `http://127.0.0.1:3014/`
 
@@ -92,7 +93,7 @@ Validation:
 - Confirm aspect filtering still works after metadata arrives.
 - Run lint/build.
 
-### 5. Regression Smoke Tests
+### 5. Regression Smoke Tests - Completed Initial Coverage
 
 Goal: make fragile interactions easy to verify.
 
@@ -106,7 +107,7 @@ Planned checks:
 
 Validation:
 
-- Add a `npm` script or documented Playwright command.
+- Run `npm.cmd run smoke`.
 - Keep generated fixtures outside the repo or create tiny deterministic fixtures only if necessary.
 
 ### 6. Component And Hook Decomposition
@@ -133,3 +134,4 @@ Validation:
 - User-visible status and media error states now surface failed/unsupported files.
 - Catalog object URLs are tracked, deduped, and revoked on cleanup.
 - Tile timeline React updates are throttled and gated to visible/zoomed/scrub states.
+- `npm.cmd run smoke` now generates temporary videos and checks theme hydration, local video add, muted/default volume, timeline hover/scrub, and zoom behavior.

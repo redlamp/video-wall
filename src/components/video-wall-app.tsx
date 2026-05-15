@@ -1533,6 +1533,7 @@ const ControlPanel = forwardRef<HTMLDivElement, ControlPanelProps>(function Cont
   return (
     <div
       ref={ref}
+      data-testid="control-panel"
       className={cn(
         "absolute z-30 w-fit max-w-[calc(100vw-1.5rem)] cursor-move rounded-lg border border-white/10 bg-popover/65 p-2 text-popover-foreground shadow-2xl backdrop-blur-xl",
         panelPosition ? "" : "bottom-2 left-1/2 -translate-x-1/2"
@@ -2093,6 +2094,7 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <span className="w-9 shrink-0 tabular-nums">{formatDuration(currentTime)}</span>
       <input
+        data-testid="video-timeline"
         className="h-1 min-w-0 flex-1 cursor-pointer accent-white"
         type="range"
         min={0}
@@ -2110,6 +2112,8 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
   return (
     <div
       ref={setRootRef}
+      data-testid="video-tile"
+      data-wall-id={wallId}
       className={cn(
         "relative shrink-0 rounded-md border bg-black shadow-sm outline-none",
         zoomed ? "overflow-visible" : "overflow-hidden",
@@ -2170,6 +2174,7 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
       ) : null}
       <div
         ref={frameRef}
+        data-testid={zoomed ? "zoomed-video-frame" : "video-frame"}
         className={cn(
           "relative h-full w-full overflow-hidden bg-black",
           zoomed &&
@@ -2192,6 +2197,7 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
             localVideoRef.current = node
             videoRef(node)
           }}
+          data-testid="wall-video"
           src={video.url}
           className="h-full w-full bg-black"
           style={videoDisplayStyle}

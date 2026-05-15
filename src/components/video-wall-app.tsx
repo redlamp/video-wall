@@ -31,6 +31,7 @@ import {
   Maximize2,
   Minimize2,
   Minus,
+  Moon,
   PaintBucket,
   Pause,
   Pin,
@@ -44,6 +45,7 @@ import {
   Shuffle,
   SkipBack,
   SkipForward,
+  Sun,
   View,
   Volume2,
   VolumeX,
@@ -99,6 +101,7 @@ type InsertTarget = {
 } | null
 type ScrollMode = "all" | "row"
 type AspectFilter = "mixed" | "landscape" | "portrait"
+type ThemeMode = "dark" | "light"
 type VideoDetails = Pick<CatalogVideo, "duration" | "width" | "height">
 type PlaybackSnapshot = {
   currentTime: number
@@ -131,6 +134,11 @@ export function VideoWallApp() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [shuffleOn, setShuffleOn] = useState(true)
   const [scrollMode, setScrollMode] = useState<ScrollMode>("all")
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    if (typeof window === "undefined") return "dark"
+    const stored = window.localStorage.getItem("video-wall-theme")
+    return stored === "light" || stored === "dark" ? stored : "dark"
+  })
   const [wallSize, setWallSize] = useState({ width: 0, height: 0 })
   const [zoomedId, setZoomedId] = useState<string | null>(null)
   const [dragRect, setDragRect] = useState<DragRect | null>(null)
@@ -167,6 +175,11 @@ export function VideoWallApp() {
   )
 
   const selectedWallIds = useMemo(() => selectedIds, [selectedIds])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", themeMode === "dark")
+    window.localStorage.setItem("video-wall-theme", themeMode)
+  }, [themeMode])
 
   const wallVideos = useMemo(() => {
     const catalogById = new Map(catalog.map((item) => [item.id, item]))
@@ -1067,6 +1080,7 @@ export function VideoWallApp() {
           isPlaying={isPlaying}
           shuffleOn={shuffleOn}
           scrollMode={scrollMode}
+          themeMode={themeMode}
           onMouseEnter={showPanel}
           onMouseLeave={schedulePanelHide}
           onPanelPointerDown={startPanelDrag}
@@ -1088,6 +1102,7 @@ export function VideoWallApp() {
           onShuffle={() => void fillWall(true, true)}
           onShuffleOnChange={setShuffleOn}
           onScrollModeChange={setScrollMode}
+          onThemeModeChange={setThemeMode}
         />
 
         <div
@@ -1380,6 +1395,7 @@ const ControlPanel = forwardRef<HTMLDivElement, ControlPanelProps>(function Cont
     isPlaying,
     shuffleOn,
     scrollMode,
+    themeMode,
     onMouseEnter,
     onMouseLeave,
     onPanelPointerDown,
@@ -1401,6 +1417,7 @@ const ControlPanel = forwardRef<HTMLDivElement, ControlPanelProps>(function Cont
     onShuffle,
     onShuffleOnChange,
     onScrollModeChange,
+    onThemeModeChange,
   },
   ref
 ) {
@@ -1435,7 +1452,7 @@ const ControlPanel = forwardRef<HTMLDivElement, ControlPanelProps>(function Cont
       onPointerCancel={onPanelPointerCancel}
     >
       <div className="flex flex-col gap-2">
-        <div className="flex flex-nowrap items-center gap-2 pr-10">
+        <div className="flex flex-nowrap items-center gap-2 pr-20">
           <TooltipButton label="Fill gaps in wall">
             <Button size="sm" variant="secondary" onClick={onFill}>
               <PaintBucket data-icon="inline-start" />
@@ -1592,6 +1609,15 @@ const ControlPanel = forwardRef<HTMLDivElement, ControlPanelProps>(function Cont
         </div>
       </div>
       <Button
+        className="absolute right-11 top-2"
+        size="icon-sm"
+        variant="ghost"
+        onClick={() => onThemeModeChange(themeMode === "dark" ? "light" : "dark")}
+        aria-label={themeMode === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+      >
+        {themeMode === "dark" ? <Sun data-icon="inline-start" /> : <Moon data-icon="inline-start" />}
+      </Button>
+      <Button
         className="absolute right-2 top-2"
         size="icon-sm"
         variant={panelPinned ? "default" : "ghost"}
@@ -1619,6 +1645,7 @@ type ControlPanelProps = {
   isPlaying: boolean
   shuffleOn: boolean
   scrollMode: ScrollMode
+  themeMode: ThemeMode
   onMouseEnter: () => void
   onMouseLeave: () => void
   onPanelPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
@@ -1640,6 +1667,7 @@ type ControlPanelProps = {
   onShuffle: () => void
   onShuffleOnChange: (value: boolean) => void
   onScrollModeChange: (value: ScrollMode) => void
+  onThemeModeChange: (value: ThemeMode) => void
 }
 
 function IconMenu({
@@ -1762,9 +1790,20 @@ function StepperControl({
 }) {
   return (
     <div className="flex items-center gap-1 rounded-md border border-border bg-background/45 p-1 text-xs text-muted-foreground">
-      <span className="flex w-6 justify-center" aria-label={label}>
-        {icon}
-      </span>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="flex size-6 cursor-default items-center justify-center rounded text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={label}
+            >
+              {icon}
+            </button>
+          }
+        />
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
       <Button size="icon-xs" variant="ghost" onClick={onDecrease} aria-label={`Decrease ${label}`}>
         <Minus data-icon="inline-start" />
       </Button>

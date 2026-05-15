@@ -17,6 +17,8 @@ import {
 } from "react"
 import gsap from "gsap"
 import {
+  ArrowRightFromLine,
+  ArrowRightLeft,
   ChevronLeft,
   ChevronRight,
   CircleOff,
@@ -32,6 +34,9 @@ import {
   PinOff,
   Play,
   Plus,
+  Ratio,
+  RectangleHorizontal,
+  RectangleVertical,
   Rows3,
   Shuffle,
   SkipBack,
@@ -89,6 +94,7 @@ type InsertTarget = {
 } | null
 type ScrollMode = "all" | "row"
 type AspectFilter = "mixed" | "landscape" | "portrait"
+type VideoDetails = Pick<CatalogVideo, "duration" | "width" | "height">
 
 export function VideoWallApp() {
   const [catalog, setCatalog] = useState<CatalogVideo[]>([])
@@ -212,7 +218,7 @@ export function VideoWallApp() {
           const item = createCatalogVideo(file)
           const meta = await getVideoMeta(item.key).catch(() => undefined)
           if (meta) {
-            return {
+            const cachedItem = {
               ...item,
               duration: meta.duration,
               width: meta.width,
@@ -220,8 +226,13 @@ export function VideoWallApp() {
               crop: meta.crop,
               cropConfidence: meta.cropConfidence,
             }
+            if (hasKnownAspect(cachedItem)) return cachedItem
+            const details = await readVideoDetails(cachedItem).catch(() => undefined)
+            if (details) persistVideoDetails(cachedItem, details)
+            return details ? { ...cachedItem, ...details } : cachedItem
           }
           const details = await readVideoDetails(item).catch(() => undefined)
+          if (details) persistVideoDetails(item, details)
           return details ? { ...item, ...details } : item
         })
       )
@@ -254,9 +265,17 @@ export function VideoWallApp() {
   )
 
   const fillWall = useCallback(
-    (random = false, replace = false) => {
+    async (random = false, replace = false) => {
+      let sourceCatalog = filteredCatalog
+
+      if (aspectFilter !== "mixed" && sortedCatalog.some((item) => !hasKnownAspect(item))) {
+        const hydratedCatalog = await hydrateCatalogDetails(sortedCatalog)
+        sourceCatalog = filterCatalogByAspect(hydratedCatalog, aspectFilter, cropMode)
+        setCatalog((current) => mergeHydratedCatalog(current, hydratedCatalog))
+      }
+
       const nextWall = buildWallToFillRows({
-        catalog: filteredCatalog,
+        catalog: sourceCatalog,
         currentWall: wall,
         rows,
         rowHeight,
@@ -270,7 +289,7 @@ export function VideoWallApp() {
       setShownThisSession(new Set(nextWall.map((item) => item.catalogId)))
       setIsPlaying(nextWall.length > 0)
     },
-    [cropMode, filteredCatalog, rowHeight, rows, wall, wallSize.width]
+    [aspectFilter, cropMode, filteredCatalog, rowHeight, rows, sortedCatalog, wall, wallSize.width]
   )
 
   const refillTile = useCallback(
@@ -526,7 +545,7 @@ export function VideoWallApp() {
     const panel = panelRef.current
     if (!panel) return
     gsap.to(panel, {
-      y: panelOpen || panelPinned ? 0 : -86,
+      y: panelOpen || panelPinned ? 0 : 86,
       opacity: panelOpen || panelPinned ? 1 : 0.08,
       duration: 0.22,
       ease: "power2.out",
@@ -868,7 +887,7 @@ export function VideoWallApp() {
     <main
       className="relative flex h-screen overflow-hidden bg-background text-foreground"
       onPointerMove={(event) => {
-        if (event.clientY <= 72) revealPanel()
+        if (window.innerHeight - event.clientY <= 72) revealPanel()
         if (event.clientX <= 16) setCatalogOpen(true)
       }}
       onDragOver={(event) => {
@@ -934,7 +953,7 @@ export function VideoWallApp() {
       />
 
       <section className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="absolute inset-x-0 top-0 h-20" onMouseEnter={revealPanel} />
+        <div className="absolute inset-x-0 bottom-0 h-20" onMouseEnter={revealPanel} />
         <ControlPanel
           ref={panelRef}
           panelPinned={panelPinned}
@@ -965,8 +984,8 @@ export function VideoWallApp() {
           onPause={pauseAll}
           onSeekBackward={() => seekTargets(-SEEK_SECONDS)}
           onSeekForward={() => seekTargets(SEEK_SECONDS)}
-          onFill={() => fillWall(shuffleOn, false)}
-          onShuffle={() => fillWall(true, true)}
+          onFill={() => void fillWall(shuffleOn, false)}
+          onShuffle={() => void fillWall(true, true)}
           onShuffleOnChange={setShuffleOn}
           onScrollModeChange={setScrollMode}
         />
@@ -1026,7 +1045,9 @@ export function VideoWallApp() {
                     style={{
                       width: row.width,
                       transform: `translateX(${
-                        scrollMode === "row" ? Math.max(0, (wallSize.width - row.width) / 2) : row.offset
+                        scrollMode === "row"
+                          ? Math.max(0, (wallSize.width - row.width) / 2)
+                          : Math.max(0, (wallContentWidth - row.width) / 2)
                       }px)`,
                     }}
                   >
@@ -1272,132 +1293,160 @@ const ControlPanel = forwardRef<HTMLDivElement, ControlPanelProps>(function Cont
   },
   ref
 ) {
+  const AspectIcon =
+    aspectFilter === "landscape"
+      ? RectangleHorizontal
+      : aspectFilter === "portrait"
+        ? RectangleVertical
+        : Ratio
+
   return (
     <div
       ref={ref}
-      className="absolute left-1/2 top-2 z-30 w-fit max-w-[calc(100vw-1.5rem)] -translate-x-1/2 rounded-lg border border-white/10 bg-popover/65 p-2 text-popover-foreground shadow-2xl backdrop-blur-xl"
+      className="absolute bottom-2 left-1/2 z-30 w-fit max-w-[calc(100vw-1.5rem)] -translate-x-1/2 rounded-lg border border-white/10 bg-popover/65 p-2 text-popover-foreground shadow-2xl backdrop-blur-xl"
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
       <div className="flex flex-col gap-2">
         <div className="flex flex-nowrap items-center gap-2">
-        <div className="flex items-center gap-1">
-          <TooltipButton label={isPlaying ? "Pause all videos" : "Play all videos"}>
-            <Button
-              size="icon-sm"
-              onClick={isPlaying ? onPause : onPlay}
-              aria-label={isPlaying ? "Pause all videos" : "Play all videos"}
-            >
-              {isPlaying ? <Pause data-icon="inline-start" /> : <Play data-icon="inline-start" />}
-            </Button>
-          </TooltipButton>
-          <TooltipButton label="Skip backward 5 seconds">
-            <Button size="icon-sm" variant="outline" onClick={onSeekBackward}>
-              <SkipBack data-icon="inline-start" />
-            </Button>
-          </TooltipButton>
-          <TooltipButton label="Skip forward 5 seconds">
-            <Button size="icon-sm" variant="outline" onClick={onSeekForward}>
-              <SkipForward data-icon="inline-start" />
-            </Button>
-          </TooltipButton>
-        </div>
+          <Button size="sm" variant="secondary" onClick={onFill}>
+            <PaintBucket data-icon="inline-start" />
+            Fill wall
+          </Button>
+          <Button size="sm" variant="secondary" onClick={onShuffle}>
+            <Dice5 data-icon="inline-start" />
+            Random
+          </Button>
+          <Button
+            size="sm"
+            variant={shuffleOn ? "default" : "outline"}
+            onClick={() => onShuffleOnChange(!shuffleOn)}
+          >
+            <Shuffle data-icon="inline-start" />
+            Shuffle
+          </Button>
+          <Button
+            size="sm"
+            variant={scrollMode === "row" ? "default" : "outline"}
+            onClick={() => onScrollModeChange(scrollMode === "row" ? "all" : "row")}
+          >
+            {scrollMode === "row" ? (
+              <ArrowRightLeft data-icon="inline-start" />
+            ) : (
+              <ArrowRightFromLine data-icon="inline-start" />
+            )}
+            {scrollMode === "row" ? "Scroll Row" : "Scroll All"}
+          </Button>
 
-        <Separator orientation="vertical" className="h-7" />
+          <Select
+            value={aspectFilter}
+            onValueChange={(value) => onAspectFilterChange(value as AspectFilter)}
+          >
+            <SelectTrigger size="sm" className="w-14 px-2" aria-label="Aspect ratio filter">
+              <AspectIcon data-icon="inline-start" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="mixed">
+                  <Ratio data-icon="inline-start" />
+                  Mixed
+                </SelectItem>
+                <SelectItem value="landscape">
+                  <RectangleHorizontal data-icon="inline-start" />
+                  Landscape
+                </SelectItem>
+                <SelectItem value="portrait">
+                  <RectangleVertical data-icon="inline-start" />
+                  Portrait
+                </SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
 
-        <Button
-          variant={muted ? "default" : "outline"}
-          size="icon-sm"
-          onClick={() => onMutedChange(!muted)}
-          aria-label={muted ? "Unmute all videos" : "Mute all videos"}
-        >
-          {muted ? <VolumeX data-icon="inline-start" /> : <Volume2 data-icon="inline-start" />}
-        </Button>
-        <ControlSlider
-          label="Volume"
-          showLabel={false}
-          value={Math.round(masterVolume * 100)}
-          min={0}
-          max={100}
-          onValueChange={(value) => onMasterVolumeChange(value / 100)}
-        />
-
-        <StepperControl
-          label="Speed"
-          icon={<FastForward data-icon="inline-start" />}
-          value={`${playbackRate.toFixed(2)}x`}
-          onDecrease={() => onPlaybackRateChange(Math.max(0.25, playbackRate - 0.25))}
-          onIncrease={() => onPlaybackRateChange(Math.min(2, playbackRate + 0.25))}
-        />
-
-        <StepperControl
-          label="Rows"
-          icon={<Rows3 data-icon="inline-start" />}
-          value={rows}
-          onDecrease={() => onRowsChange(Math.max(1, rows - 1))}
-          onIncrease={() => onRowsChange(Math.min(6, rows + 1))}
-        />
-
-        <Select value={cropMode} onValueChange={(value) => onCropModeChange(value as CropMode)}>
-          <SelectTrigger size="sm" className="w-36">
-            <Crop data-icon="inline-start" />
-            <SelectValue placeholder="Crop" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value="detected">Detected</SelectItem>
-              <SelectItem value="fill">Fill</SelectItem>
-              <SelectItem value="fit">Fit</SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={aspectFilter}
-          onValueChange={(value) => onAspectFilterChange(value as AspectFilter)}
-        >
-          <SelectTrigger size="sm" className="w-32">
-            <SelectValue placeholder="Aspect" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value="mixed">Mixed</SelectItem>
-              <SelectItem value="landscape">Landscape</SelectItem>
-              <SelectItem value="portrait">Portrait</SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-
+          <Select value={cropMode} onValueChange={(value) => onCropModeChange(value as CropMode)}>
+            <SelectTrigger size="sm" className="w-14 px-2" aria-label="Crop mode">
+              <Crop data-icon="inline-start" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="detected">
+                  <Crop data-icon="inline-start" />
+                  Detected
+                </SelectItem>
+                <SelectItem value="fill">
+                  <Maximize2 data-icon="inline-start" />
+                  Fill
+                </SelectItem>
+                <SelectItem value="fit">
+                  <RectangleHorizontal data-icon="inline-start" />
+                  Fit
+                </SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="flex flex-nowrap items-center gap-2">
-        <Button size="sm" variant="outline" onClick={onFill}>
-          <PaintBucket data-icon="inline-start" />
-          Fill wall
-        </Button>
-        <Button size="sm" variant="outline" onClick={onShuffle}>
-          <Dice5 data-icon="inline-start" />
-          Random
-        </Button>
-        <Button
-          size="sm"
-          variant={shuffleOn ? "default" : "outline"}
-          onClick={() => onShuffleOnChange(!shuffleOn)}
-        >
-          <Shuffle data-icon="inline-start" />
-          Shuffle
-        </Button>
-        <Button
-          size="sm"
-          variant={scrollMode === "row" ? "default" : "outline"}
-          onClick={() => onScrollModeChange(scrollMode === "row" ? "all" : "row")}
-        >
-          Scroll row
-        </Button>
+          <div className="flex items-center gap-1">
+            <TooltipButton label={isPlaying ? "Pause all videos" : "Play all videos"}>
+              <Button
+                size="icon-sm"
+                onClick={isPlaying ? onPause : onPlay}
+                aria-label={isPlaying ? "Pause all videos" : "Play all videos"}
+              >
+                {isPlaying ? <Pause data-icon="inline-start" /> : <Play data-icon="inline-start" />}
+              </Button>
+            </TooltipButton>
+            <TooltipButton label="Skip backward 5 seconds">
+              <Button size="icon-sm" variant="outline" onClick={onSeekBackward}>
+                <SkipBack data-icon="inline-start" />
+              </Button>
+            </TooltipButton>
+            <TooltipButton label="Skip forward 5 seconds">
+              <Button size="icon-sm" variant="outline" onClick={onSeekForward}>
+                <SkipForward data-icon="inline-start" />
+              </Button>
+            </TooltipButton>
+          </div>
+
+          <Separator orientation="vertical" className="h-7" />
+
+          <Button
+            variant={muted ? "default" : "outline"}
+            size="icon-sm"
+            onClick={() => onMutedChange(!muted)}
+            aria-label={muted ? "Unmute all videos" : "Mute all videos"}
+          >
+            {muted ? <VolumeX data-icon="inline-start" /> : <Volume2 data-icon="inline-start" />}
+          </Button>
+          <ControlSlider
+            label="Volume"
+            showLabel={false}
+            value={Math.round(masterVolume * 100)}
+            min={0}
+            max={100}
+            onValueChange={(value) => onMasterVolumeChange(value / 100)}
+          />
+
+          <StepperControl
+            label="Speed"
+            icon={<FastForward data-icon="inline-start" />}
+            value={`${playbackRate.toFixed(2)}x`}
+            onDecrease={() => onPlaybackRateChange(Math.max(0.25, playbackRate - 0.25))}
+            onIncrease={() => onPlaybackRateChange(Math.min(2, playbackRate + 0.25))}
+          />
+
+          <StepperControl
+            label="Rows"
+            icon={<Rows3 data-icon="inline-start" />}
+            value={rows}
+            onDecrease={() => onRowsChange(Math.max(1, rows - 1))}
+            onIncrease={() => onRowsChange(Math.min(6, rows + 1))}
+          />
         </div>
       </div>
       <Button
-        className="absolute bottom-2 right-2"
+        className="absolute right-2 top-2"
         size="icon-sm"
         variant={panelPinned ? "default" : "ghost"}
         onClick={onTogglePin}
@@ -1877,6 +1926,10 @@ function getEffectiveAspectRatio(video: CatalogVideo, cropMode: CropMode) {
   return Math.max(0.25, Math.min(4, naturalAspect))
 }
 
+function hasKnownAspect(video: CatalogVideo) {
+  return Boolean(video.width && video.height)
+}
+
 function filterCatalogByAspect(
   catalog: CatalogVideo[],
   aspectFilter: AspectFilter,
@@ -1884,13 +1937,44 @@ function filterCatalogByAspect(
 ) {
   if (aspectFilter === "mixed") return catalog
   return catalog.filter((video) => {
+    if (!hasKnownAspect(video)) return false
     const aspect = getEffectiveAspectRatio(video, cropMode)
     return aspectFilter === "landscape" ? aspect >= 1 : aspect < 1
   })
 }
 
+async function hydrateCatalogDetails(catalog: CatalogVideo[]) {
+  return Promise.all(
+    catalog.map(async (item) => {
+      if (item.duration && hasKnownAspect(item)) return item
+      const details = await readVideoDetails(item).catch(() => undefined)
+      if (details) persistVideoDetails(item, details)
+      return details ? { ...item, ...details } : item
+    })
+  )
+}
+
+function mergeHydratedCatalog(current: CatalogVideo[], hydrated: CatalogVideo[]) {
+  const hydratedById = new Map(hydrated.map((item) => [item.id, item]))
+  return current.map((item) => hydratedById.get(item.id) ?? item)
+}
+
+function persistVideoDetails(video: CatalogVideo, details: VideoDetails) {
+  void saveVideoMeta({
+    key: video.key,
+    name: video.name,
+    duration: details.duration,
+    width: details.width,
+    height: details.height,
+    modified: video.modified,
+    crop: video.crop,
+    cropConfidence: video.cropConfidence,
+    lastOpenedAt: timestamp(),
+  })
+}
+
 function readVideoDetails(video: CatalogVideo) {
-  return new Promise<Pick<CatalogVideo, "duration" | "width" | "height">>((resolve, reject) => {
+  return new Promise<VideoDetails>((resolve, reject) => {
     const element = document.createElement("video")
     element.preload = "metadata"
     element.muted = true

@@ -118,7 +118,7 @@ Suggested extraction order:
 
 - Pure wall layout/replacement helpers into `src/lib/wall-layout.ts`. Completed.
 - `VideoTile` into `src/components/video-tile.tsx`. Completed.
-- `ControlPanel` into `src/components/control-panel.tsx`.
+- `ControlPanel` into `src/components/control-panel.tsx`. Completed.
 - `CatalogSidebar` into `src/components/catalog-sidebar.tsx`.
 - Catalog ingestion/persistence into a hook.
 - Playback controls into a hook.
@@ -138,3 +138,4 @@ Validation:
 - Metadata reads are capped at four concurrent jobs and crop detection is capped at two concurrent jobs.
 - Wall packing, row fill, replacement, and reorder helpers were extracted to `src/lib/wall-layout.ts`.
 - `VideoTile` was extracted to `src/components/video-tile.tsx`.
+- `ControlPanel` and its local controls were extracted to `src/components/control-panel.tsx`.

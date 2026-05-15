@@ -68,10 +68,13 @@ import { cn } from "@/lib/utils"
 
 const DEFAULT_ROWS = 2
 const SEEK_SECONDS = 5
+const METADATA_CONCURRENCY = 4
+const CROP_DETECTION_CONCURRENCY = 2
 const SUPPORTED_ACCEPT = ".mp4,.mov,.webm,.m4v,.mkv,.avi,video/*"
 const PUBLIC_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? ""
 const THEME_STORAGE_KEY = "video-wall-theme"
 const THEME_CHANGE_EVENT = "video-wall-theme-change"
+const runCropDetection = createAsyncLimiter(CROP_DETECTION_CONCURRENCY)
 
 type DragRect = {
   startX: number
@@ -296,8 +299,10 @@ export function VideoWallApp() {
       }
 
       const existingKeys = new Set(catalog.map((item) => item.key))
-      const nextVideos = await Promise.all(
-        videos.map(async (file) => {
+      const nextVideos = await mapWithConcurrency(
+        videos,
+        METADATA_CONCURRENCY,
+        async (file) => {
           const item = createCatalogVideo(file)
           const meta = await getVideoMeta(item.key).catch(() => undefined)
           if (meta) {
@@ -317,7 +322,7 @@ export function VideoWallApp() {
           const details = await readVideoDetails(item).catch(() => undefined)
           if (details) persistVideoDetails(item, details)
           return details ? { ...item, ...details } : item
-        })
+        }
       )
 
       const seenKeys = new Set(existingKeys)
@@ -1017,7 +1022,10 @@ export function VideoWallApp() {
 
     const hasCrop = Boolean(video.crop)
     if (!hasCrop) {
-      const detection = await detectLetterbox(element)
+      const detection = await runCropDetection(() => {
+        if (videoRefs.current.get(wallId) !== element) return Promise.resolve(undefined)
+        return detectLetterbox(element)
+      })
       if (detection) {
         setCatalog((current) =>
           current.map((item) =>
@@ -2393,14 +2401,59 @@ function filterCatalogByAspect(
 }
 
 async function hydrateCatalogDetails(catalog: CatalogVideo[]) {
-  return Promise.all(
-    catalog.map(async (item) => {
+  return mapWithConcurrency(
+    catalog,
+    METADATA_CONCURRENCY,
+    async (item) => {
       if (item.duration && hasKnownAspect(item)) return item
       const details = await readVideoDetails(item).catch(() => undefined)
       if (details) persistVideoDetails(item, details)
       return details ? { ...item, ...details } : item
+    }
+  )
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+) {
+  if (items.length === 0) return []
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+  const workerCount = Math.min(Math.max(1, concurrency), items.length)
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const currentIndex = nextIndex
+        nextIndex += 1
+        results[currentIndex] = await mapper(items[currentIndex], currentIndex)
+      }
     })
   )
+
+  return results
+}
+
+function createAsyncLimiter(concurrency: number) {
+  const safeConcurrency = Math.max(1, concurrency)
+  let active = 0
+  const queue: Array<() => void> = []
+
+  return async function runLimited<T>(task: () => Promise<T>) {
+    if (active >= safeConcurrency) {
+      await new Promise<void>((resolve) => queue.push(resolve))
+    }
+
+    active += 1
+    try {
+      return await task()
+    } finally {
+      active -= 1
+      queue.shift()?.()
+    }
+  }
 }
 
 function mergeHydratedCatalog(current: CatalogVideo[], hydrated: CatalogVideo[]) {

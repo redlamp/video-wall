@@ -77,7 +77,7 @@ Validation:
 - Scrub a tile and confirm seek behavior.
 - Run lint/build.
 
-### 4. Crop And Metadata Analysis Queue
+### 4. Crop And Metadata Analysis Queue - Completed
 
 Goal: prevent local folder adds from launching too many metadata/crop jobs at once.
 
@@ -135,3 +135,4 @@ Validation:
 - Catalog object URLs are tracked, deduped, and revoked on cleanup.
 - Tile timeline React updates are throttled and gated to visible/zoomed/scrub states.
 - `npm.cmd run smoke` now generates temporary videos and checks theme hydration, local video add, muted/default volume, timeline hover/scrub, and zoom behavior.
+- Metadata reads are capped at four concurrent jobs and crop detection is capped at two concurrent jobs.

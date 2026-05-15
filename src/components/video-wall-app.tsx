@@ -2656,15 +2656,18 @@ function getRowHeight(containerHeight: number, rows: number) {
 function getVideoCropStyle(video: CatalogVideo, cropMode: CropMode): CSSProperties {
   if (cropMode === "fit") return { objectFit: "contain" }
   if (cropMode === "fill") return { objectFit: "cover" }
-  if (!video.crop || !hasMeaningfulCrop(video.crop)) return { objectFit: "fill" }
+  if (!video.crop || !hasMeaningfulCrop(video.crop)) return { objectFit: "cover" }
 
   const { x, y, width, height } = video.crop
+  const naturalAspect = video.width && video.height ? video.width / video.height : 16 / 9
+
   return {
-    height: `${100 / height}%`,
+    aspectRatio: `${naturalAspect}`,
+    height: "auto",
     left: `${(-x / width) * 100}%`,
     maxHeight: "none",
     maxWidth: "none",
-    objectFit: "fill",
+    objectFit: "contain",
     position: "absolute",
     top: `${(-y / height) * 100}%`,
     width: `${100 / width}%`,

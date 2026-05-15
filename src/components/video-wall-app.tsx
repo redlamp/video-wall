@@ -209,6 +209,12 @@ export function VideoWallApp() {
       const previousRect = previousPositions.get(wallId)
       nextPositions.set(wallId, nextRect)
 
+      if (zoomedId === wallId) {
+        gsap.killTweensOf(node)
+        gsap.set(node, { clearProps: "transform" })
+        return
+      }
+
       if (!previousRect || draggedWallId === wallId) return
       const deltaX = previousRect.left - nextRect.left
       const deltaY = previousRect.top - nextRect.top
@@ -222,7 +228,7 @@ export function VideoWallApp() {
     })
 
     layoutPositionsRef.current = nextPositions
-  }, [draggedWallId, packedRows])
+  }, [draggedWallId, packedRows, zoomedId])
 
   const addFiles = useCallback(
     async (files: File[]) => {
@@ -2593,10 +2599,7 @@ function getZoomedVideoStyle(video: CatalogVideo, cropMode: CropMode): CSSProper
     return { objectFit: "contain" }
   }
 
-  return {
-    ...getVideoCropStyle(video, cropMode),
-    objectFit: "contain",
-  }
+  return getVideoCropStyle(video, cropMode)
 }
 
 function getZoomedTileStyle(video: CatalogVideo, cropMode: CropMode): CSSProperties {

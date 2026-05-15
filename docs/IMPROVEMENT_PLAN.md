@@ -117,7 +117,7 @@ Goal: split `src/components/video-wall-app.tsx` into maintainable pieces.
 Suggested extraction order:
 
 - Pure wall layout/replacement helpers into `src/lib/wall-layout.ts`. Completed.
-- `VideoTile` into `src/components/video-tile.tsx`.
+- `VideoTile` into `src/components/video-tile.tsx`. Completed.
 - `ControlPanel` into `src/components/control-panel.tsx`.
 - `CatalogSidebar` into `src/components/catalog-sidebar.tsx`.
 - Catalog ingestion/persistence into a hook.
@@ -137,3 +137,4 @@ Validation:
 - `npm.cmd run smoke` now generates temporary videos and checks theme hydration, local video add, muted/default volume, timeline hover/scrub, and zoom behavior.
 - Metadata reads are capped at four concurrent jobs and crop detection is capped at two concurrent jobs.
 - Wall packing, row fill, replacement, and reorder helpers were extracted to `src/lib/wall-layout.ts`.
+- `VideoTile` was extracted to `src/components/video-tile.tsx`.

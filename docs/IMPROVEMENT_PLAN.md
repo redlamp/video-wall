@@ -116,7 +116,7 @@ Goal: split `src/components/video-wall-app.tsx` into maintainable pieces.
 
 Suggested extraction order:
 
-- Pure wall layout/replacement helpers into `src/lib/wall-layout.ts`.
+- Pure wall layout/replacement helpers into `src/lib/wall-layout.ts`. Completed.
 - `VideoTile` into `src/components/video-tile.tsx`.
 - `ControlPanel` into `src/components/control-panel.tsx`.
 - `CatalogSidebar` into `src/components/catalog-sidebar.tsx`.
@@ -136,3 +136,4 @@ Validation:
 - Tile timeline React updates are throttled and gated to visible/zoomed/scrub states.
 - `npm.cmd run smoke` now generates temporary videos and checks theme hydration, local video add, muted/default volume, timeline hover/scrub, and zoom behavior.
 - Metadata reads are capped at four concurrent jobs and crop detection is capped at two concurrent jobs.
+- Wall packing, row fill, replacement, and reorder helpers were extracted to `src/lib/wall-layout.ts`.

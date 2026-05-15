@@ -194,6 +194,7 @@ export function VideoWallApp() {
   const layoutPositionsRef = useRef<Map<string, DOMRect>>(new Map())
   const playbackRestoreRef = useRef(new Map<string, PlaybackSnapshot>())
   const panelDragRef = useRef<PanelDrag | null>(null)
+  const catalogUrlsRef = useRef<Set<string>>(new Set())
 
   const sortedCatalog = useMemo(() => {
     return [...catalog].sort((a, b) => {
@@ -209,6 +210,16 @@ export function VideoWallApp() {
   )
 
   const selectedWallIds = useMemo(() => selectedIds, [selectedIds])
+
+  useEffect(() => {
+    catalogUrlsRef.current = new Set(catalog.map((item) => item.url))
+  }, [catalog])
+
+  useEffect(() => {
+    return () => {
+      catalogUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [])
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", themeMode === "dark")
@@ -309,7 +320,20 @@ export function VideoWallApp() {
         })
       )
 
-      const uniqueVideos = nextVideos.filter((item) => !existingKeys.has(item.key))
+      const seenKeys = new Set(existingKeys)
+      const uniqueVideos: CatalogVideo[] = []
+      const duplicateVideos: CatalogVideo[] = []
+
+      nextVideos.forEach((item) => {
+        if (seenKeys.has(item.key)) {
+          duplicateVideos.push(item)
+          return
+        }
+        seenKeys.add(item.key)
+        uniqueVideos.push(item)
+      })
+      duplicateVideos.forEach((item) => URL.revokeObjectURL(item.url))
+
       if (uniqueVideos.length === 0) {
         setMessage("Those videos are already in the catalog.")
         return

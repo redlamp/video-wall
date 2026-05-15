@@ -19,6 +19,7 @@ import gsap from "gsap"
 import {
   ArrowRightFromLine,
   ArrowRightLeft,
+  Check,
   ChevronLeft,
   ChevronRight,
   CircleOff,
@@ -27,6 +28,7 @@ import {
   FastForward,
   FolderOpen,
   Maximize2,
+  Minimize2,
   Minus,
   PaintBucket,
   Pause,
@@ -41,6 +43,7 @@ import {
   Shuffle,
   SkipBack,
   SkipForward,
+  View,
   Volume2,
   VolumeX,
   X,
@@ -95,6 +98,18 @@ type InsertTarget = {
 type ScrollMode = "all" | "row"
 type AspectFilter = "mixed" | "landscape" | "portrait"
 type VideoDetails = Pick<CatalogVideo, "duration" | "width" | "height">
+type PlaybackSnapshot = {
+  currentTime: number
+  wasPlaying: boolean
+}
+type PanelPosition = {
+  left: number
+  top: number
+}
+type PanelDrag = {
+  offsetX: number
+  offsetY: number
+}
 
 export function VideoWallApp() {
   const [catalog, setCatalog] = useState<CatalogVideo[]>([])
@@ -105,7 +120,7 @@ export function VideoWallApp() {
   const [sortMode, setSortMode] = useState<SortMode>("date")
   const [playbackRate, setPlaybackRate] = useState(1)
   const [masterVolume, setMasterVolume] = useState(0.2)
-  const [muted, setMuted] = useState(false)
+  const [muted, setMuted] = useState(true)
   const [cropMode, setCropMode] = useState<CropMode>("detected")
   const [aspectFilter, setAspectFilter] = useState<AspectFilter>("mixed")
   const [panelOpen, setPanelOpen] = useState(true)
@@ -120,6 +135,7 @@ export function VideoWallApp() {
   const [draggedWallId, setDraggedWallId] = useState<string | null>(null)
   const [insertTarget, setInsertTarget] = useState<InsertTarget>(null)
   const [dropActive, setDropActive] = useState(false)
+  const [panelPosition, setPanelPosition] = useState<PanelPosition | null>(null)
   const [, setMessage] = useState("Drop videos or folders to begin.")
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -132,6 +148,8 @@ export function VideoWallApp() {
   const [tileMutedIds, setTileMutedIds] = useState<Set<string>>(new Set())
   const panelHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const layoutPositionsRef = useRef<Map<string, DOMRect>>(new Map())
+  const playbackRestoreRef = useRef(new Map<string, PlaybackSnapshot>())
+  const panelDragRef = useRef<PanelDrag | null>(null)
 
   const sortedCatalog = useMemo(() => {
     return [...catalog].sort((a, b) => {
@@ -542,10 +560,21 @@ export function VideoWallApp() {
   }, [isPlaying, wall])
 
   useEffect(() => {
+    playbackRestoreRef.current.forEach((restore, wallId) => {
+      const video = videoRefs.current.get(wallId)
+      if (!video || !Number.isFinite(restore.currentTime) || video.duration <= 0) return
+      video.currentTime = Math.min(restore.currentTime, Math.max(0, video.duration - 0.05))
+      if (restore.wasPlaying || isPlaying) {
+        void video.play().catch(() => undefined)
+      }
+      playbackRestoreRef.current.delete(wallId)
+    })
+  }, [isPlaying, wall])
+
+  useEffect(() => {
     const panel = panelRef.current
     if (!panel) return
     gsap.to(panel, {
-      y: panelOpen || panelPinned ? 0 : 86,
       opacity: panelOpen || panelPinned ? 1 : 0.08,
       duration: 0.22,
       ease: "power2.out",
@@ -558,15 +587,62 @@ export function VideoWallApp() {
     }
   }, [wallVideos.length])
 
-  const revealPanel = useCallback(() => {
-    setPanelOpen(true)
+  const clearPanelHideTimer = useCallback(() => {
     if (panelHideTimerRef.current) clearTimeout(panelHideTimerRef.current)
+    panelHideTimerRef.current = null
+  }, [])
+
+  const showPanel = useCallback(() => {
+    setPanelOpen(true)
+    clearPanelHideTimer()
+  }, [clearPanelHideTimer])
+
+  const schedulePanelHide = useCallback(() => {
+    clearPanelHideTimer()
     if (!panelPinned) {
       panelHideTimerRef.current = setTimeout(() => {
         setPanelOpen(false)
       }, 4000)
     }
-  }, [panelPinned])
+  }, [clearPanelHideTimer, panelPinned])
+
+  const revealPanel = useCallback(() => {
+    showPanel()
+    schedulePanelHide()
+  }, [schedulePanelHide, showPanel])
+
+  const startPanelDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement
+    if (target.closest("button,input,[role='combobox'],[data-panel-interactive]")) return
+    const panel = panelRef.current
+    if (!panel) return
+
+    const rect = panel.getBoundingClientRect()
+    panelDragRef.current = {
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+    }
+    setPanelPosition({ left: rect.left, top: rect.top })
+    panel.setPointerCapture(event.pointerId)
+  }
+
+  const dragPanel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = panelDragRef.current
+    const panel = panelRef.current
+    if (!drag || !panel) return
+
+    const rect = panel.getBoundingClientRect()
+    setPanelPosition({
+      left: clamp(event.clientX - drag.offsetX, 8, window.innerWidth - rect.width - 8),
+      top: clamp(event.clientY - drag.offsetY, 8, window.innerHeight - rect.height - 8),
+    })
+  }
+
+  const finishPanelDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!panelDragRef.current) return
+    panelDragRef.current = null
+    panelRef.current?.releasePointerCapture(event.pointerId)
+  }
 
   useEffect(() => {
     const wallElement = wallRef.current
@@ -668,16 +744,6 @@ export function VideoWallApp() {
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [cycleZoomedVideo, panelOpen, seekTargets, togglePlayTargets, zoomedId])
 
-  useEffect(() => {
-    const zoomedTile = zoomedId ? tileRefs.current.get(zoomedId) : null
-    if (!zoomedTile) return
-    gsap.fromTo(
-      zoomedTile,
-      { scale: 0.96, opacity: 0.92 },
-      { scale: 1, opacity: 1, duration: 0.2, ease: "power2.out" }
-    )
-  }, [zoomedId])
-
   const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
     if (isInternalWallDrag(event, draggedWallId)) {
       event.preventDefault()
@@ -704,6 +770,15 @@ export function VideoWallApp() {
     setInsertTarget(null)
   }
 
+  const rememberPlaybackPosition = (wallId: string) => {
+    const video = videoRefs.current.get(wallId)
+    if (!video) return
+    playbackRestoreRef.current.set(wallId, {
+      currentTime: video.currentTime,
+      wasPlaying: !video.paused,
+    })
+  }
+
   const updateTileDragTarget = (wallId: string, event: React.DragEvent<HTMLDivElement>) => {
     const draggedId =
       draggedWallId || event.dataTransfer.getData("application/x-video-wall-id") || null
@@ -726,6 +801,7 @@ export function VideoWallApp() {
 
     event.preventDefault()
     event.stopPropagation()
+    rememberPlaybackPosition(draggedId)
     const rect = event.currentTarget.getBoundingClientRect()
     const position = insertTarget?.wallId === wallId
       ? insertTarget.position
@@ -744,6 +820,7 @@ export function VideoWallApp() {
     if (!draggedId || !insertTarget) return
     event.preventDefault()
     event.stopPropagation()
+    rememberPlaybackPosition(draggedId)
     setWall((current) =>
       reorderWall(current, draggedId, insertTarget.wallId, insertTarget.position)
     )
@@ -881,6 +958,15 @@ export function VideoWallApp() {
       const current = videoRefs.current.get(wallId)
       await current?.play().catch(() => undefined)
     }
+
+    const restore = playbackRestoreRef.current.get(wallId)
+    if (restore && Number.isFinite(restore.currentTime) && element.duration > 0) {
+      element.currentTime = Math.min(restore.currentTime, Math.max(0, element.duration - 0.05))
+      if (restore.wasPlaying || isPlaying) {
+        await element.play().catch(() => undefined)
+      }
+      playbackRestoreRef.current.delete(wallId)
+    }
   }
 
   return (
@@ -930,6 +1016,9 @@ export function VideoWallApp() {
         catalog={sortedCatalog}
         activeIds={new Set(wall.map((item) => item.catalogId))}
         sortMode={sortMode}
+        selectedCount={selectedIds.size}
+        wallCount={wall.length}
+        catalogCount={catalog.length}
         onSortModeChange={setSortMode}
         onAddFiles={() => fileInputRef.current?.click()}
         onAddFolder={() => folderInputRef.current?.click()}
@@ -957,6 +1046,7 @@ export function VideoWallApp() {
         <ControlPanel
           ref={panelRef}
           panelPinned={panelPinned}
+          panelPosition={panelPosition}
           rows={rows}
           playbackRate={playbackRate}
           masterVolume={masterVolume}
@@ -969,10 +1059,12 @@ export function VideoWallApp() {
           isPlaying={isPlaying}
           shuffleOn={shuffleOn}
           scrollMode={scrollMode}
-          onMouseEnter={revealPanel}
-          onMouseLeave={() => {
-            if (!panelPinned) revealPanel()
-          }}
+          onMouseEnter={showPanel}
+          onMouseLeave={schedulePanelHide}
+          onPanelPointerDown={startPanelDrag}
+          onPanelPointerMove={dragPanel}
+          onPanelPointerUp={finishPanelDrag}
+          onPanelPointerCancel={finishPanelDrag}
           onTogglePin={() => setPanelPinned((current) => !current)}
           onRowsChange={setRows}
           onPlaybackRateChange={setPlaybackRate}
@@ -1041,14 +1133,14 @@ export function VideoWallApp() {
                   }}
                 >
                   <div
-                    className="flex h-full gap-1.5 transition-transform duration-300 ease-out"
+                    className="flex h-full gap-1.5 transition-[margin-left] duration-300 ease-out"
                     style={{
                       width: row.width,
-                      transform: `translateX(${
+                      marginLeft: `${
                         scrollMode === "row"
                           ? Math.max(0, (wallSize.width - row.width) / 2)
                           : Math.max(0, (wallContentWidth - row.width) / 2)
-                      }px)`,
+                      }px`,
                     }}
                   >
                     {row.items.map(({ wallItem, video, width }) => (
@@ -1138,6 +1230,9 @@ function CatalogSidebar({
   catalog,
   activeIds,
   sortMode,
+  selectedCount,
+  wallCount,
+  catalogCount,
   onSortModeChange,
   onAddFiles,
   onAddFolder,
@@ -1151,6 +1246,9 @@ function CatalogSidebar({
   catalog: CatalogVideo[]
   activeIds: Set<string>
   sortMode: SortMode
+  selectedCount: number
+  wallCount: number
+  catalogCount: number
   onSortModeChange: (value: SortMode) => void
   onAddFiles: () => void
   onAddFolder: () => void
@@ -1215,6 +1313,9 @@ function CatalogSidebar({
               </SelectContent>
             </Select>
           </div>
+          <div className="px-3 pb-3 text-center text-xs text-muted-foreground">
+            {wallCount} on wall · {catalogCount} in catalog · {selectedCount} selected
+          </div>
           <Separator />
           <ScrollArea className="min-h-0 flex-1">
             <div className="flex flex-col gap-1 p-2">
@@ -1261,20 +1362,22 @@ function CatalogSidebar({
 const ControlPanel = forwardRef<HTMLDivElement, ControlPanelProps>(function ControlPanel(
   {
     panelPinned,
+    panelPosition,
     rows,
     playbackRate,
     masterVolume,
     muted,
     cropMode,
     aspectFilter,
+    isPlaying,
     shuffleOn,
     scrollMode,
-    selectedCount,
-    wallCount,
-    catalogCount,
-    isPlaying,
     onMouseEnter,
     onMouseLeave,
+    onPanelPointerDown,
+    onPanelPointerMove,
+    onPanelPointerUp,
+    onPanelPointerCancel,
     onTogglePin,
     onRowsChange,
     onPlaybackRateChange,
@@ -1293,97 +1396,132 @@ const ControlPanel = forwardRef<HTMLDivElement, ControlPanelProps>(function Cont
   },
   ref
 ) {
+  const [openDropdown, setOpenDropdown] = useState<"aspect" | "crop" | null>(null)
   const AspectIcon =
     aspectFilter === "landscape"
       ? RectangleHorizontal
       : aspectFilter === "portrait"
         ? RectangleVertical
         : Ratio
+  const CropIcon =
+    cropMode === "fill" ? Maximize2 : cropMode === "fit" ? Crop : View
+  const menuSide =
+    !panelPosition ||
+    (typeof window !== "undefined" && panelPosition.top > window.innerHeight / 2)
+      ? "top"
+      : "bottom"
 
   return (
     <div
       ref={ref}
-      className="absolute bottom-2 left-1/2 z-30 w-fit max-w-[calc(100vw-1.5rem)] -translate-x-1/2 rounded-lg border border-white/10 bg-popover/65 p-2 text-popover-foreground shadow-2xl backdrop-blur-xl"
+      className={cn(
+        "absolute z-30 w-fit max-w-[calc(100vw-1.5rem)] cursor-move rounded-lg border border-white/10 bg-popover/65 p-2 text-popover-foreground shadow-2xl backdrop-blur-xl",
+        panelPosition ? "" : "bottom-2 left-1/2 -translate-x-1/2"
+      )}
+      style={panelPosition ? { left: panelPosition.left, top: panelPosition.top } : undefined}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
+      onPointerDown={onPanelPointerDown}
+      onPointerMove={onPanelPointerMove}
+      onPointerUp={onPanelPointerUp}
+      onPointerCancel={onPanelPointerCancel}
     >
       <div className="flex flex-col gap-2">
-        <div className="flex flex-nowrap items-center gap-2">
-          <Button size="sm" variant="secondary" onClick={onFill}>
-            <PaintBucket data-icon="inline-start" />
-            Fill wall
-          </Button>
-          <Button size="sm" variant="secondary" onClick={onShuffle}>
-            <Dice5 data-icon="inline-start" />
-            Random
-          </Button>
-          <Button
-            size="sm"
-            variant={shuffleOn ? "default" : "outline"}
-            onClick={() => onShuffleOnChange(!shuffleOn)}
-          >
-            <Shuffle data-icon="inline-start" />
-            Shuffle
-          </Button>
-          <Button
-            size="sm"
-            variant={scrollMode === "row" ? "default" : "outline"}
-            onClick={() => onScrollModeChange(scrollMode === "row" ? "all" : "row")}
-          >
-            {scrollMode === "row" ? (
-              <ArrowRightLeft data-icon="inline-start" />
-            ) : (
-              <ArrowRightFromLine data-icon="inline-start" />
-            )}
-            {scrollMode === "row" ? "Scroll Row" : "Scroll All"}
-          </Button>
+        <div className="flex flex-nowrap items-center gap-2 pr-10">
+          <TooltipButton label="Fill gaps in wall">
+            <Button size="sm" variant="secondary" onClick={onFill}>
+              <PaintBucket data-icon="inline-start" />
+              Fill wall
+            </Button>
+          </TooltipButton>
+          <TooltipButton label="Refresh with random videos">
+            <Button size="sm" variant="secondary" onClick={onShuffle}>
+              <Dice5 data-icon="inline-start" />
+              Random
+            </Button>
+          </TooltipButton>
+          <TooltipButton label="Shuffle video selection">
+            <Button
+              size="sm"
+              variant={shuffleOn ? "default" : "outline"}
+              onClick={() => onShuffleOnChange(!shuffleOn)}
+            >
+              <Shuffle data-icon="inline-start" />
+              Shuffle
+            </Button>
+          </TooltipButton>
+          <TooltipButton label="Scroll rows together or separately">
+            <Button
+              size="sm"
+              variant={scrollMode === "row" ? "default" : "outline"}
+              onClick={() => onScrollModeChange(scrollMode === "row" ? "all" : "row")}
+            >
+              {scrollMode === "row" ? (
+                <ArrowRightLeft data-icon="inline-start" />
+              ) : (
+                <ArrowRightFromLine data-icon="inline-start" />
+              )}
+              {scrollMode === "row" ? "Scroll Row" : "Scroll All"}
+            </Button>
+          </TooltipButton>
 
-          <Select
-            value={aspectFilter}
-            onValueChange={(value) => onAspectFilterChange(value as AspectFilter)}
-          >
-            <SelectTrigger size="sm" className="w-14 px-2" aria-label="Aspect ratio filter">
-              <AspectIcon data-icon="inline-start" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="mixed">
-                  <Ratio data-icon="inline-start" />
-                  Mixed
-                </SelectItem>
-                <SelectItem value="landscape">
-                  <RectangleHorizontal data-icon="inline-start" />
-                  Landscape
-                </SelectItem>
-                <SelectItem value="portrait">
-                  <RectangleVertical data-icon="inline-start" />
-                  Portrait
-                </SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+          <IconMenu
+            label="Aspect ratio filter"
+            tooltip="Filter by aspect ratio"
+            icon={<AspectIcon data-icon="inline-start" />}
+            side={menuSide}
+            open={openDropdown === "aspect"}
+            onOpenChange={(open) => setOpenDropdown(open ? "aspect" : null)}
+            items={[
+              {
+                label: "Mixed",
+                icon: <Ratio data-icon="inline-start" />,
+                selected: aspectFilter === "mixed",
+                onSelect: () => onAspectFilterChange("mixed"),
+              },
+              {
+                label: "Landscape",
+                icon: <RectangleHorizontal data-icon="inline-start" />,
+                selected: aspectFilter === "landscape",
+                onSelect: () => onAspectFilterChange("landscape"),
+              },
+              {
+                label: "Portrait",
+                icon: <RectangleVertical data-icon="inline-start" />,
+                selected: aspectFilter === "portrait",
+                onSelect: () => onAspectFilterChange("portrait"),
+              },
+            ]}
+          />
 
-          <Select value={cropMode} onValueChange={(value) => onCropModeChange(value as CropMode)}>
-            <SelectTrigger size="sm" className="w-14 px-2" aria-label="Crop mode">
-              <Crop data-icon="inline-start" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="detected">
-                  <Crop data-icon="inline-start" />
-                  Detected
-                </SelectItem>
-                <SelectItem value="fill">
-                  <Maximize2 data-icon="inline-start" />
-                  Fill
-                </SelectItem>
-                <SelectItem value="fit">
-                  <RectangleHorizontal data-icon="inline-start" />
-                  Fit
-                </SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+          <IconMenu
+            label="Crop mode"
+            tooltip="Video framing"
+            icon={<CropIcon data-icon="inline-start" />}
+            side={menuSide}
+            open={openDropdown === "crop"}
+            onOpenChange={(open) => setOpenDropdown(open ? "crop" : null)}
+            items={[
+              {
+                label: "Detected",
+                icon: <View data-icon="inline-start" />,
+                selected: cropMode === "detected",
+                onSelect: () => onCropModeChange("detected"),
+              },
+              {
+                label: "Fill",
+                icon: <Maximize2 data-icon="inline-start" />,
+                selected: cropMode === "fill",
+                onSelect: () => onCropModeChange("fill"),
+              },
+              {
+                label: "Fit",
+                icon: <Crop data-icon="inline-start" />,
+                selected: cropMode === "fit",
+                onSelect: () => onCropModeChange("fit"),
+              },
+            ]}
+          />
         </div>
 
         <div className="flex flex-nowrap items-center gap-2">
@@ -1454,17 +1592,13 @@ const ControlPanel = forwardRef<HTMLDivElement, ControlPanelProps>(function Cont
       >
         {panelPinned ? <PinOff data-icon="inline-start" /> : <Pin data-icon="inline-start" />}
       </Button>
-      <div className="mt-2 flex items-center justify-center text-xs text-muted-foreground">
-        <span>
-          {wallCount} on wall · {catalogCount} in catalog · {selectedCount || "none"} selected · ` toggles panel
-        </span>
-      </div>
     </div>
   )
 })
 
 type ControlPanelProps = {
   panelPinned: boolean
+  panelPosition: PanelPosition | null
   rows: number
   playbackRate: number
   masterVolume: number
@@ -1479,6 +1613,10 @@ type ControlPanelProps = {
   scrollMode: ScrollMode
   onMouseEnter: () => void
   onMouseLeave: () => void
+  onPanelPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
+  onPanelPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void
+  onPanelPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void
+  onPanelPointerCancel: (event: ReactPointerEvent<HTMLDivElement>) => void
   onTogglePin: () => void
   onRowsChange: (value: number) => void
   onPlaybackRateChange: (value: number) => void
@@ -1494,6 +1632,77 @@ type ControlPanelProps = {
   onShuffle: () => void
   onShuffleOnChange: (value: boolean) => void
   onScrollModeChange: (value: ScrollMode) => void
+}
+
+function IconMenu({
+  label,
+  tooltip,
+  icon,
+  side = "bottom",
+  open,
+  onOpenChange,
+  items,
+}: {
+  label: string
+  tooltip: string
+  icon: ReactNode
+  side?: "top" | "bottom"
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  items: Array<{
+    label: string
+    icon: ReactNode
+    selected: boolean
+    onSelect: () => void
+  }>
+}) {
+  return (
+    <div className="relative" data-panel-interactive>
+      <TooltipButton label={tooltip}>
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-14 px-2"
+          aria-label={label}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => onOpenChange(!open)}
+        >
+          {icon}
+        </Button>
+      </TooltipButton>
+      {open ? (
+        <div
+          role="menu"
+          className={cn(
+            "absolute right-0 z-[70] min-w-36 rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-xl",
+            side === "top" ? "bottom-[calc(100%+0.25rem)]" : "top-[calc(100%+0.25rem)]"
+          )}
+        >
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitemradio"
+              aria-checked={item.selected}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none hover:bg-accent hover:text-accent-foreground",
+                item.selected && "bg-accent text-accent-foreground"
+              )}
+              onClick={() => {
+                item.onSelect()
+                onOpenChange(false)
+              }}
+            >
+              {item.icon}
+              <span className="flex-1 whitespace-nowrap">{item.label}</span>
+              {item.selected ? <Check data-icon="inline-start" /> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function ControlSlider({
@@ -1597,13 +1806,33 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
   ref
 ) {
   const cropStyle = getVideoCropStyle(video, cropMode)
+  const videoDisplayStyle = zoomed ? getZoomedVideoStyle(video, cropMode) : cropStyle
+  const tileStyle = {
+    height: rowHeight,
+    width: tileWidth,
+  }
+  const zoomFrameStyle = zoomed ? getZoomedTileStyle(video, cropMode) : undefined
   const [controlsVisible, setControlsVisible] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(video.duration ?? 0)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const frameRef = useRef<HTMLDivElement | null>(null)
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const controlPointerActiveRef = useRef(false)
   const shortLoopSecondsRef = useRef(0)
+
+  const setRootRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      rootRef.current = node
+      if (typeof ref === "function") {
+        ref(node)
+      } else if (ref) {
+        ref.current = node
+      }
+    },
+    [ref]
+  )
 
   const revealControls = useCallback(() => {
     setControlsVisible(true)
@@ -1622,6 +1851,21 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
   useEffect(() => {
     shortLoopSecondsRef.current = 0
   }, [video.id, video.duration])
+
+  useEffect(() => {
+    const element = frameRef.current
+    if (!element) return
+    gsap.killTweensOf(element)
+    if (zoomed) {
+      gsap.fromTo(
+        element,
+        { opacity: 0.2 },
+        { opacity: 1, duration: 0.18, ease: "power2.inOut", overwrite: "auto" }
+      )
+      return
+    }
+    gsap.set(element, { clearProps: "opacity" })
+  }, [video.id, zoomed])
 
   useEffect(() => {
     const element = localVideoRef.current
@@ -1667,8 +1911,13 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
       <Button size="icon-xs" variant="secondary" onClick={onTogglePin} aria-label="Pin video">
         {pinned ? <PinOff data-icon="inline-start" /> : <Pin data-icon="inline-start" />}
       </Button>
-      <Button size="icon-xs" variant="secondary" onClick={onDoubleClick} aria-label="Zoom video">
-        <Maximize2 data-icon="inline-start" />
+      <Button
+        size="icon-xs"
+        variant="secondary"
+        onClick={zoomed ? onCloseZoom : onDoubleClick}
+        aria-label={zoomed ? "Exit zoomed video" : "Zoom video"}
+      >
+        {zoomed ? <Minimize2 data-icon="inline-start" /> : <Maximize2 data-icon="inline-start" />}
       </Button>
       <Button size="icon-xs" variant="destructive" onClick={onRemove} aria-label="Remove video">
         <X data-icon="inline-start" />
@@ -1696,22 +1945,15 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
 
   return (
     <div
-      ref={ref}
+      ref={setRootRef}
       className={cn(
-        "relative shrink-0 overflow-hidden rounded-md border bg-black shadow-sm outline-none",
+        "relative shrink-0 rounded-md border bg-black shadow-sm outline-none",
+        zoomed ? "overflow-visible" : "overflow-hidden",
         selected ? "border-primary ring-2 ring-primary/40" : "border-border/60",
         dragging && "opacity-45",
-        !controlsVisible && !zoomed && "cursor-none",
-        zoomed && "fixed left-1/2 top-1/2 z-40 h-[95vh] w-[95vw] -translate-x-1/2 -translate-y-1/2 rounded-lg border-primary"
+        !controlsVisible && !zoomed && "cursor-none"
       )}
-      style={
-        zoomed
-          ? undefined
-          : {
-              height: rowHeight,
-              width: tileWidth,
-            }
-      }
+      style={tileStyle}
       onPointerDown={(event) => {
         event.stopPropagation()
         revealControls()
@@ -1737,7 +1979,8 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
       }}
       onDoubleClick={(event) => {
         event.stopPropagation()
-        onDoubleClick()
+        if (zoomed) onCloseZoom()
+        else onDoubleClick()
       }}
     >
       <div
@@ -1756,91 +1999,111 @@ const VideoTile = forwardRef<HTMLDivElement, VideoTileProps>(function VideoTile(
         <button
           type="button"
           aria-label="Close zoomed video"
-          className="fixed inset-0 -z-10 cursor-default bg-background/70"
+          className="fixed inset-0 z-40 cursor-default bg-background/70"
           onClick={onCloseZoom}
         />
       ) : null}
-      <video
-        ref={(node) => {
-          localVideoRef.current = node
-          videoRef(node)
-        }}
-        src={video.url}
-        className="h-full w-full bg-black"
-        style={cropStyle}
-        playsInline
-        controls={false}
-        draggable={false}
-        muted={muted || tileMuted || masterVolume === 0}
-        onLoadedMetadata={(event) => {
-          const element = event.currentTarget
-          element.playbackRate = playbackRate
-          element.volume = masterVolume
-          element.muted = muted || tileMuted || masterVolume === 0
-          setDuration(element.duration || 0)
-          onMetadata(element)
-        }}
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-        onEnded={(event) => {
-          const element = event.currentTarget
-          if (element.duration > 0 && element.duration < 30 && shortLoopSecondsRef.current < 30) {
-            shortLoopSecondsRef.current += element.duration
-            element.currentTime = 0
-            if (isPlaying) void element.play().catch(() => undefined)
-            return
-          }
-          shortLoopSecondsRef.current = 0
-          onEnded()
-        }}
-        onError={() => undefined}
-      />
       <div
+        ref={frameRef}
         className={cn(
-          "pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between bg-gradient-to-b from-black/70 to-transparent p-2 transition-opacity",
-          controlsVisible ? "opacity-100" : "opacity-0"
+          "relative h-full w-full overflow-hidden bg-black",
+          zoomed &&
+            "fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-primary shadow-2xl"
         )}
+        style={zoomFrameStyle}
+        onPointerDown={(event) => {
+          event.stopPropagation()
+          revealControls()
+          onSelect(wallId, event)
+        }}
+        onDoubleClick={(event) => {
+          event.stopPropagation()
+          if (zoomed) onCloseZoom()
+          else onDoubleClick()
+        }}
       >
-        <div className="min-w-0">
-          <div className="truncate text-xs font-medium text-white">{video.name}</div>
-          <div className="mt-0.5 flex gap-1.5 text-[11px] text-white/70">
-            <span>{formatDuration(video.duration)}</span>
-            {video.crop ? <span>crop {Math.round((video.cropConfidence ?? 0) * 100)}%</span> : null}
+        <video
+          ref={(node) => {
+            localVideoRef.current = node
+            videoRef(node)
+          }}
+          src={video.url}
+          className="h-full w-full bg-black"
+          style={videoDisplayStyle}
+          playsInline
+          controls={false}
+          draggable={false}
+          muted={muted || tileMuted || masterVolume === 0}
+          onLoadedMetadata={(event) => {
+            const element = event.currentTarget
+            element.playbackRate = playbackRate
+            element.volume = masterVolume
+            element.muted = muted || tileMuted || masterVolume === 0
+            setDuration(element.duration || 0)
+            onMetadata(element)
+          }}
+          onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+          onEnded={(event) => {
+            const element = event.currentTarget
+            if (element.duration > 0 && element.duration < 30 && shortLoopSecondsRef.current < 30) {
+              shortLoopSecondsRef.current += element.duration
+              element.currentTime = 0
+              if (isPlaying) void element.play().catch(() => undefined)
+              return
+            }
+            shortLoopSecondsRef.current = 0
+            onEnded()
+          }}
+          onError={() => undefined}
+        />
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between bg-gradient-to-b from-black/70 to-transparent p-2 transition-opacity",
+            controlsVisible ? "opacity-100" : "opacity-0"
+          )}
+        >
+          <div className="min-w-0">
+            <div className="truncate text-xs font-medium text-white">{video.name}</div>
+            <div className="mt-0.5 flex gap-1.5 text-[11px] text-white/70">
+              <span>{formatDuration(video.duration)}</span>
+              {video.crop ? <span>crop {Math.round((video.cropConfidence ?? 0) * 100)}%</span> : null}
+            </div>
+          </div>
+          <div className="flex gap-1">
+            {pinned ? <Badge variant="secondary">Pinned</Badge> : null}
+            {selected ? <Badge>Selected</Badge> : null}
           </div>
         </div>
-        <div className="flex gap-1">
-          {pinned ? <Badge variant="secondary">Pinned</Badge> : null}
-          {selected ? <Badge>Selected</Badge> : null}
-        </div>
-      </div>
-      <div
-        className={cn(
-          "absolute inset-x-2 bottom-2 rounded bg-black/55 px-2 py-1 text-[11px] text-white shadow-lg backdrop-blur transition-opacity",
-          compactControls ? "flex flex-col gap-1" : "flex items-center gap-2",
-          controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
-        )}
-        onPointerDown={(event) => event.stopPropagation()}
-        onPointerUp={() => {
-          controlPointerActiveRef.current = false
-        }}
-        onPointerCancel={() => {
-          controlPointerActiveRef.current = false
-        }}
-      >
-        {compactControls ? (
-          <>
-            <div className="flex items-center justify-center gap-1">
+        <div
+          className={cn(
+            "absolute inset-x-2 bottom-2 rounded bg-black/55 px-2 py-1 text-[11px] text-white shadow-lg backdrop-blur transition-opacity",
+            compactControls ? "flex flex-col gap-1" : "flex items-center gap-2",
+            controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
+          )}
+          onPointerDown={(event) => event.stopPropagation()}
+          onPointerUp={() => {
+            controlPointerActiveRef.current = false
+          }}
+          onPointerCancel={() => {
+            controlPointerActiveRef.current = false
+          }}
+        >
+          {compactControls ? (
+            <>
+              <div className="flex items-center justify-center gap-1">
+                {transportButtons}
+                {tileActionButtons}
+              </div>
+              {timelineScrubber}
+            </>
+          ) : (
+            <>
               {transportButtons}
+              {timelineScrubber}
               {tileActionButtons}
-            </div>
-            {timelineScrubber}
-          </>
-        ) : (
-          <>
-            {transportButtons}
-            {timelineScrubber}
-            {tileActionButtons}
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -2318,6 +2581,25 @@ function getVideoCropStyle(video: CatalogVideo, cropMode: CropMode): CSSProperti
   }
 }
 
+function getZoomedVideoStyle(video: CatalogVideo, cropMode: CropMode): CSSProperties {
+  if (cropMode !== "detected" || !video.crop || !hasMeaningfulCrop(video.crop)) {
+    return { objectFit: "contain" }
+  }
+
+  return {
+    ...getVideoCropStyle(video, cropMode),
+    objectFit: "contain",
+  }
+}
+
+function getZoomedTileStyle(video: CatalogVideo, cropMode: CropMode): CSSProperties {
+  const aspect = getEffectiveAspectRatio(video, cropMode)
+  return {
+    width: `min(95vw, calc(95vh * ${aspect}))`,
+    height: `min(95vh, calc(95vw / ${aspect}))`,
+  }
+}
+
 function hasMeaningfulCrop(crop: { width: number; height: number }) {
   return crop.width < 0.97 || crop.height < 0.97
 }
@@ -2333,6 +2615,10 @@ function shuffle<T>(items: T[]) {
     ;[copy[i], copy[j]] = [copy[j], copy[i]]
   }
   return copy
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
 }
 
 function timestamp() {

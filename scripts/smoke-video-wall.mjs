@@ -51,6 +51,19 @@ async function waitForServer(url, timeoutMs = 45000) {
   throw new Error(`Timed out waiting for ${url}`)
 }
 
+async function waitForCondition(description, predicate, { timeoutMs = 5000, intervalMs = 100 } = {}) {
+  const startedAt = Date.now()
+  let lastValue
+
+  while (Date.now() - startedAt < timeoutMs) {
+    lastValue = await predicate()
+    if (lastValue) return lastValue
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+
+  throw new Error(`${description} timed out${lastValue === undefined ? "" : `; last value: ${JSON.stringify(lastValue)}`}`)
+}
+
 async function ensureServer(url) {
   if (await isReachable(url)) return
 
@@ -130,6 +143,16 @@ async function ensureFixtureVideos() {
   return outputPaths
 }
 
+async function readTimelineState(videoLocator, timelineLocator) {
+  const [currentTime, paused, timelineValue] = await Promise.all([
+    videoLocator.evaluate((video) => video.currentTime),
+    videoLocator.evaluate((video) => video.paused),
+    timelineLocator.inputValue().then(Number),
+  ])
+
+  return { currentTime, paused, timelineValue }
+}
+
 async function runSmoke() {
   await ensureServer(SMOKE_URL)
   const fixturePaths = await ensureFixtureVideos()
@@ -203,10 +226,19 @@ async function runSmoke() {
   }
 
   logStep("checking hovered timeline updates")
-  const beforeTimeline = Number(await firstTimeline.inputValue())
-  await page.waitForTimeout(800)
-  const afterTimeline = Number(await firstTimeline.inputValue())
-  assert(afterTimeline > beforeTimeline, "Hovered video timeline did not advance")
+  await firstTile.hover()
+  const beforeTimeline = await readTimelineState(firstVideo, firstTimeline)
+  await waitForCondition(
+    "video playback and hovered timeline to advance",
+    async () => {
+      const nextState = await readTimelineState(firstVideo, firstTimeline)
+      return nextState.currentTime > beforeTimeline.currentTime + 0.25 &&
+        nextState.timelineValue > beforeTimeline.timelineValue
+        ? nextState
+        : false
+    },
+    { timeoutMs: 6000, intervalMs: 100 }
+  )
 
   logStep("checking timeline scrub")
   const duration = Number(await firstTimeline.getAttribute("max"))

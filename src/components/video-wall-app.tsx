@@ -23,8 +23,10 @@ import { Button } from "@/components/ui/button"
 import { CatalogSidebar } from "@/components/catalog-sidebar"
 import { ControlPanel, type PanelPosition, type ScrollMode, type ThemeMode } from "@/components/control-panel"
 import { VideoTile } from "@/components/video-tile"
+import { createAsyncLimiter, mapWithConcurrency } from "@/lib/async-queue"
 import { detectLetterbox } from "@/lib/crop-detection"
 import { createCatalogVideo, filesFromDataTransfer, isVideoFile } from "@/lib/media"
+import { persistVideoDetails, readVideoDetails } from "@/lib/media-details"
 import { getVideoMeta, saveLastSession, saveVideoMeta } from "@/lib/video-db"
 import type { CatalogVideo, CropMode, SortMode, WallVideo } from "@/lib/video-types"
 import {
@@ -66,7 +68,6 @@ type InsertTarget = {
   wallId: string
   position: InsertPosition
 } | null
-type VideoDetails = Pick<CatalogVideo, "duration" | "width" | "height">
 type PlaybackSnapshot = {
   currentTime: number
   wasPlaying: boolean
@@ -1347,85 +1348,9 @@ async function hydrateCatalogDetails(catalog: CatalogVideo[]) {
   )
 }
 
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>
-) {
-  if (items.length === 0) return []
-  const results = new Array<R>(items.length)
-  let nextIndex = 0
-  const workerCount = Math.min(Math.max(1, concurrency), items.length)
-
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (nextIndex < items.length) {
-        const currentIndex = nextIndex
-        nextIndex += 1
-        results[currentIndex] = await mapper(items[currentIndex], currentIndex)
-      }
-    })
-  )
-
-  return results
-}
-
-function createAsyncLimiter(concurrency: number) {
-  const safeConcurrency = Math.max(1, concurrency)
-  let active = 0
-  const queue: Array<() => void> = []
-
-  return async function runLimited<T>(task: () => Promise<T>) {
-    if (active >= safeConcurrency) {
-      await new Promise<void>((resolve) => queue.push(resolve))
-    }
-
-    active += 1
-    try {
-      return await task()
-    } finally {
-      active -= 1
-      queue.shift()?.()
-    }
-  }
-}
-
 function mergeHydratedCatalog(current: CatalogVideo[], hydrated: CatalogVideo[]) {
   const hydratedById = new Map(hydrated.map((item) => [item.id, item]))
   return current.map((item) => hydratedById.get(item.id) ?? item)
-}
-
-function persistVideoDetails(video: CatalogVideo, details: VideoDetails) {
-  void saveVideoMeta({
-    key: video.key,
-    name: video.name,
-    duration: details.duration,
-    width: details.width,
-    height: details.height,
-    modified: video.modified,
-    crop: video.crop,
-    cropConfidence: video.cropConfidence,
-    lastOpenedAt: timestamp(),
-  })
-}
-
-function readVideoDetails(video: CatalogVideo) {
-  return new Promise<VideoDetails>((resolve, reject) => {
-    const element = document.createElement("video")
-    element.preload = "metadata"
-    element.muted = true
-    element.src = video.url
-    element.onloadedmetadata = () => {
-      resolve({
-        duration: element.duration || undefined,
-        width: element.videoWidth || undefined,
-        height: element.videoHeight || undefined,
-      })
-      element.removeAttribute("src")
-      element.load()
-    }
-    element.onerror = () => reject(new Error(`Unable to read metadata for ${video.name}`))
-  })
 }
 
 function isInternalWallDrag(event: React.DragEvent<HTMLElement>, draggedWallId: string | null) {

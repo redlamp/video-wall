@@ -125,7 +125,7 @@ Suggested extraction order:
 - `CatalogSidebar` into `src/components/catalog-sidebar.tsx`. Completed.
 - Catalog ingestion/persistence into a hook. Completed.
 - Media metadata/async helper utilities into focused lib modules. Completed.
-- Playback controls into a hook.
+- Playback controls into a hook. Completed.
 
 Validation:
 
@@ -146,3 +146,4 @@ Validation:
 - `CatalogSidebar` was extracted to `src/components/catalog-sidebar.tsx`.
 - Media helper utilities were extracted to `src/lib/async-queue.ts` and `src/lib/media-details.ts`.
 - Catalog ingestion, object URL cleanup, media errors, and metadata persistence were extracted to `src/hooks/use-video-catalog.ts`.
+- Playback refs, target/all transport controls, seek handling, settings sync, and restore-after-drag behavior were extracted to `src/hooks/use-wall-playback.ts`.

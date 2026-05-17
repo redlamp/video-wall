@@ -29,6 +29,7 @@ import { filesFromDataTransfer } from "@/lib/media"
 import { persistVideoDetails, readVideoDetails } from "@/lib/media-details"
 import { saveLastSession } from "@/lib/video-db"
 import { useVideoCatalog } from "@/hooks/use-video-catalog"
+import { useWallPlayback } from "@/hooks/use-wall-playback"
 import type { CatalogVideo, CropMode, SortMode, WallVideo } from "@/lib/video-types"
 import {
   buildWallToFillRows,
@@ -69,10 +70,6 @@ type InsertTarget = {
   wallId: string
   position: InsertPosition
 } | null
-type PlaybackSnapshot = {
-  currentTime: number
-  wasPlaying: boolean
-}
 type PanelDrag = {
   offsetX: number
   offsetY: number
@@ -155,11 +152,9 @@ export function VideoWallApp() {
   const wallRef = useRef<HTMLDivElement>(null)
   const rowRefs = useRef(new Map<number, HTMLDivElement>())
   const tileRefs = useRef(new Map<string, HTMLDivElement>())
-  const videoRefs = useRef(new Map<string, HTMLVideoElement>())
   const [tileMutedIds, setTileMutedIds] = useState<Set<string>>(new Set())
   const panelHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const layoutPositionsRef = useRef<Map<string, DOMRect>>(new Map())
-  const playbackRestoreRef = useRef(new Map<string, PlaybackSnapshot>())
   const panelDragRef = useRef<PanelDrag | null>(null)
 
   const sortedCatalog = useMemo(() => {
@@ -212,6 +207,31 @@ export function VideoWallApp() {
         : Math.max(wallSize.width, ...packedRows.map((row) => row.width)),
     [packedRows, scrollMode, wallSize.width]
   )
+  const {
+    videoRefs,
+    registerVideoRef,
+    seekTilePercent,
+    playAll,
+    pauseAll,
+    togglePlayTargets,
+    seekTargets,
+    cycleZoomedVideo,
+    rememberPlaybackPosition,
+    restorePlaybackIfNeeded,
+  } = useWallPlayback({
+    wall,
+    selectedWallIds,
+    displayedWallIds,
+    zoomedId,
+    setZoomedId,
+    playbackRate,
+    masterVolume,
+    muted,
+    isPlaying,
+    setIsPlaying,
+    onMessage: setMessage,
+    wallVideosLength: wallVideos.length,
+  })
 
   useLayoutEffect(() => {
     const previousPositions = layoutPositionsRef.current
@@ -438,124 +458,6 @@ export function VideoWallApp() {
     [selectedWallIds]
   )
 
-  const seekTilePercent = useCallback(
-    (wallId: string, percent: number) => {
-      const ids =
-        selectedWallIds.size > 0 && selectedWallIds.has(wallId)
-          ? selectedWallIds
-          : new Set([wallId])
-      ids.forEach((id) => {
-        const video = videoRefs.current.get(id)
-        if (video && Number.isFinite(video.duration) && video.duration > 0) {
-          video.currentTime = video.duration * percent
-        }
-      })
-    },
-    [selectedWallIds]
-  )
-
-  const applyToTargetVideos = useCallback(
-    (operation: (video: HTMLVideoElement) => void | Promise<void>) => {
-      const ids = selectedWallIds.size > 0 ? selectedWallIds : new Set(wall.map((item) => item.wallId))
-      ids.forEach((wallId) => {
-        const video = videoRefs.current.get(wallId)
-        if (video) void operation(video)
-      })
-    },
-    [selectedWallIds, wall]
-  )
-
-  const applyToAllVideos = useCallback(
-    (operation: (video: HTMLVideoElement) => void | Promise<void>) => {
-      wall.forEach((wallItem) => {
-        const video = videoRefs.current.get(wallItem.wallId)
-        if (video) void operation(video)
-      })
-    },
-    [wall]
-  )
-
-  const playTargets = useCallback(() => {
-    applyToTargetVideos((video) => video.play().catch(() => setMessage("Playback is blocked until a user gesture.")))
-    setIsPlaying(true)
-  }, [applyToTargetVideos])
-
-  const pauseTargets = useCallback(() => {
-    applyToTargetVideos((video) => video.pause())
-    setIsPlaying(false)
-  }, [applyToTargetVideos])
-
-  const playAll = useCallback(() => {
-    applyToAllVideos((video) =>
-      video.play().catch(() => setMessage("Playback is blocked until a user gesture."))
-    )
-    setIsPlaying(true)
-  }, [applyToAllVideos])
-
-  const pauseAll = useCallback(() => {
-    applyToAllVideos((video) => video.pause())
-    setIsPlaying(false)
-  }, [applyToAllVideos])
-
-  const togglePlayTargets = useCallback(() => {
-    const ids = selectedWallIds.size > 0 ? selectedWallIds : new Set(wall.map((item) => item.wallId))
-    const shouldPlay = Array.from(ids).some((id) => videoRefs.current.get(id)?.paused !== false)
-    if (shouldPlay) playTargets()
-    else pauseTargets()
-  }, [pauseTargets, playTargets, selectedWallIds, wall])
-
-  const seekTargets = useCallback(
-    (seconds: number) => {
-      applyToTargetVideos((video) => {
-        video.currentTime = Math.max(0, video.currentTime + seconds)
-      })
-    },
-    [applyToTargetVideos]
-  )
-
-  const cycleZoomedVideo = useCallback(
-    (direction: 1 | -1) => {
-      if (!zoomedId || displayedWallIds.length === 0) return
-      const currentIndex = displayedWallIds.indexOf(zoomedId)
-      const startIndex = currentIndex === -1 ? 0 : currentIndex
-      const nextIndex =
-        (startIndex + direction + displayedWallIds.length) % displayedWallIds.length
-      setZoomedId(displayedWallIds[nextIndex])
-    },
-    [displayedWallIds, zoomedId]
-  )
-
-  const updateVideoSettings = useCallback(() => {
-    videoRefs.current.forEach((video) => {
-      video.playbackRate = playbackRate
-      video.volume = masterVolume
-      video.muted = muted
-    })
-  }, [masterVolume, muted, playbackRate])
-
-  useEffect(updateVideoSettings, [updateVideoSettings, wallVideos.length])
-
-  useEffect(() => {
-    if (!isPlaying) return
-    videoRefs.current.forEach((video) => {
-      if (video.paused) {
-        void video.play().catch(() => setMessage("Press play once to allow browser autoplay."))
-      }
-    })
-  }, [isPlaying, wall])
-
-  useEffect(() => {
-    playbackRestoreRef.current.forEach((restore, wallId) => {
-      const video = videoRefs.current.get(wallId)
-      if (!video || !Number.isFinite(restore.currentTime) || video.duration <= 0) return
-      video.currentTime = Math.min(restore.currentTime, Math.max(0, video.duration - 0.05))
-      if (restore.wasPlaying || isPlaying) {
-        void video.play().catch(() => undefined)
-      }
-      playbackRestoreRef.current.delete(wallId)
-    })
-  }, [isPlaying, wall])
-
   useEffect(() => {
     const panel = panelRef.current
     if (!panel) return
@@ -755,15 +657,6 @@ export function VideoWallApp() {
     setInsertTarget(null)
   }
 
-  const rememberPlaybackPosition = (wallId: string) => {
-    const video = videoRefs.current.get(wallId)
-    if (!video) return
-    playbackRestoreRef.current.set(wallId, {
-      currentTime: video.currentTime,
-      wasPlaying: !video.paused,
-    })
-  }
-
   const updateTileDragTarget = (wallId: string, event: React.DragEvent<HTMLDivElement>) => {
     const draggedId =
       draggedWallId || event.dataTransfer.getData("application/x-video-wall-id") || null
@@ -898,14 +791,7 @@ export function VideoWallApp() {
       await current?.play().catch(() => undefined)
     }
 
-    const restore = playbackRestoreRef.current.get(wallId)
-    if (restore && Number.isFinite(restore.currentTime) && element.duration > 0) {
-      element.currentTime = Math.min(restore.currentTime, Math.max(0, element.duration - 0.05))
-      if (restore.wasPlaying || isPlaying) {
-        await element.play().catch(() => undefined)
-      }
-      playbackRestoreRef.current.delete(wallId)
-    }
+    await restorePlaybackIfNeeded(wallId, element)
   }
 
   return (
@@ -1092,8 +978,7 @@ export function VideoWallApp() {
                           else tileRefs.current.delete(wallItem.wallId)
                         }}
                         videoRef={(node) => {
-                          if (node) videoRefs.current.set(wallItem.wallId, node)
-                          else videoRefs.current.delete(wallItem.wallId)
+                          registerVideoRef(wallItem.wallId, node)
                         }}
                         wallId={wallItem.wallId}
                         video={video}

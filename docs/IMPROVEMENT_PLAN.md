@@ -123,8 +123,8 @@ Suggested extraction order:
 - `VideoTile` into `src/components/video-tile.tsx`. Completed.
 - `ControlPanel` into `src/components/control-panel.tsx`. Completed.
 - `CatalogSidebar` into `src/components/catalog-sidebar.tsx`. Completed.
-- Catalog ingestion/persistence into a hook.
-- Media metadata/async helper utilities into focused lib modules.
+- Catalog ingestion/persistence into a hook. Completed.
+- Media metadata/async helper utilities into focused lib modules. Completed.
 - Playback controls into a hook.
 
 Validation:
@@ -144,3 +144,5 @@ Validation:
 - `VideoTile` was extracted to `src/components/video-tile.tsx`.
 - `ControlPanel` and its local controls were extracted to `src/components/control-panel.tsx`.
 - `CatalogSidebar` was extracted to `src/components/catalog-sidebar.tsx`.
+- Media helper utilities were extracted to `src/lib/async-queue.ts` and `src/lib/media-details.ts`.
+- Catalog ingestion, object URL cleanup, media errors, and metadata persistence were extracted to `src/hooks/use-video-catalog.ts`.

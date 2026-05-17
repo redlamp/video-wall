@@ -2,7 +2,9 @@
 
 ## Current Baseline
 
-- Branch: `master`
+- Branch model: `main <- dev <- feature/*`
+- Current integration branch: `dev`
+- Feature work should branch from `dev` and merge back into `dev`.
 - Deploy target: GitHub Pages at `https://redlamp.github.io/video-wall/`
 - Package manager: npm
 - Required checks before commits that touch app code:
@@ -21,8 +23,9 @@ Before resuming:
 1. Run `git status --short`.
 2. Read the most recent commits with `git log --oneline -8`.
 3. Check this file for the next incomplete topic.
-4. Run lint/build before committing app-code topics.
-5. Commit each completed topic separately.
+4. Confirm whether you are on `dev` or an active `feature/*` branch.
+5. Run lint/build before committing app-code topics.
+6. Commit each completed topic separately.
 
 Avoid mixing broad refactors with behavior changes. If a topic grows beyond one focused commit, split it.
 
@@ -121,6 +124,7 @@ Suggested extraction order:
 - `ControlPanel` into `src/components/control-panel.tsx`. Completed.
 - `CatalogSidebar` into `src/components/catalog-sidebar.tsx`. Completed.
 - Catalog ingestion/persistence into a hook.
+- Media metadata/async helper utilities into focused lib modules.
 - Playback controls into a hook.
 
 Validation:
